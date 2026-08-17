@@ -21,10 +21,10 @@ const metrics: Metrics = { cvd: 0, cvdNorm: 0, cvdZ: 0, obi: 0, obiRaw: 0, veloc
 const quote = { bid: 0, ask: 0, mid: 0, ts: 0, latencyMs: 0, status: 'disconnected' as const }
 const crossExchange: CrossExchangeState = { binance: { ...quote }, bybit: { ...quote }, okx: { ...quote }, mexc: { ...quote } }
 const arbitrage: ArbitrageSpread = { grossSpread: 0, spreadPct: 0, buyExchange: null, sellExchange: null, buyAsk: 0, sellBid: 0, valid: false }
-const paperPerformance: PerformanceMetrics = { trades: 0, wins: 0, netR: 0, netPnl: 0, pf: 0, sharpe: 0, maxDD: 0, equity: [1000], avgHoldMs: 0, feesPaid: 0 }
+const paperPerformance: PerformanceMetrics = { trades: 0, wins: 0, netR: 0, netPnl: 0, pf: 0, returnQuality: 0, maxDD: 0, equity: [1000], avgHoldMs: 0, feesPaid: 0 }
 
 export interface DataState {
-  sessionId: string; symbol: string; price: number; priceStr: string; metrics: Metrics; frame: FeatureFrame | null
+  sessionId: string; symbol: string; price: number; priceStr: string; markPrice: number; metrics: Metrics; frame: FeatureFrame | null
   engineState: EngineState; regime: RegimeResult; signals: Signal[]; detectorSignals: MicroSignal[]
   candles: Candle[]; flowCandles: FlowCandle[]; plan: TradePlan | null; positionSize: PositionSize | null
   cvd: number; lastUpdate: number; trackers: Tracker[]; stats: TrackerStats; paperOrders: PaperOrder[]
@@ -34,7 +34,7 @@ export interface DataState {
 }
 
 const initial = () => ({
-  sessionId: '', symbol: 'BTCUSDT', price: 0, priceStr: '', metrics: { ...metrics, filterReasons: [] }, frame: null,
+  sessionId: '', symbol: 'BTCUSDT', price: 0, priceStr: '', markPrice: 0, metrics: { ...metrics, filterReasons: [] }, frame: null,
   engineState: 'IDLE' as EngineState, regime: { regime: 'warming', confidence: 1, reasons: ['No data'] } as RegimeResult,
   signals: [] as Signal[], detectorSignals: [] as MicroSignal[], candles: [] as Candle[], flowCandles: [] as FlowCandle[],
   plan: null as TradePlan | null, positionSize: null as PositionSize | null, cvd: 0, lastUpdate: 0,
@@ -47,7 +47,7 @@ const initial = () => ({
 export const useDataStore = create<DataState>((set) => ({
   ...initial(),
   applyRuntimeSnapshot: snapshot => set({
-    sessionId: snapshot.sessionId, symbol: snapshot.symbol, price: snapshot.price, priceStr: snapshot.priceStr,
+    sessionId: snapshot.sessionId, symbol: snapshot.symbol, price: snapshot.price, priceStr: snapshot.priceStr, markPrice: snapshot.markPrice,
     metrics: snapshot.metrics, frame: snapshot.frame, engineState: snapshot.engineState, regime: snapshot.regime,
     signals: snapshot.signals, detectorSignals: snapshot.detectorSignals, candles: snapshot.candles,
     flowCandles: snapshot.flowCandles, plan: snapshot.plan, positionSize: snapshot.positionSize,

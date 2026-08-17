@@ -10,8 +10,29 @@ function normalizeFuturesSymbol(input: string): string {
   let s = input.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (!s) return ''
   if (!s.endsWith('USDT')) s = s.replace(/USDT$/, '') + 'USDT'
-  // Remove dash already done, keep USDT
   return s
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === 'object' && value !== null ? value as Record<string, unknown> : null
+
+function parseFuturesSymbols(value: unknown, source: 'okx' | 'binance'): string[] {
+  const payload = asRecord(value)
+  const rows = source === 'okx' ? payload?.data : payload?.symbols
+  if (!Array.isArray(rows)) return []
+  return rows.flatMap(rowValue => {
+    const row = asRecord(rowValue)
+    if (!row) return []
+    if (source === 'okx') {
+      const instrument = String(row.instId ?? '')
+      return row.state === 'live' && instrument.endsWith('-USDT-SWAP')
+        ? [instrument.replace('-USDT-SWAP', 'USDT').replace('-', '')]
+        : []
+    }
+    return row.status === 'TRADING' && row.contractType === 'PERPETUAL' && row.quoteAsset === 'USDT'
+      ? [String(row.symbol ?? '')]
+      : []
+  }).filter(Boolean)
 }
 
 export function SettingsScreen() {
@@ -44,12 +65,12 @@ export function SettingsScreen() {
   useEffect(() => {
     const controller = new AbortController()
     const url = source === 'okx' ? 'https://www.okx.com/api/v5/public/instruments?instType=SWAP' : 'https://fapi.binance.com/fapi/v1/exchangeInfo'
-    fetch(url, { signal: controller.signal }).then(response => response.json()).then((data: any) => {
-      const symbols: string[] = source === 'okx'
-        ? (data.data ?? []).filter((item: any) => item.state === 'live' && String(item.instId).endsWith('-USDT-SWAP')).map((item: any) => String(item.instId).replace('-USDT-SWAP', 'USDT').replace('-', ''))
-        : (data.symbols ?? []).filter((item: any) => item.status === 'TRADING' && item.contractType === 'PERPETUAL' && item.quoteAsset === 'USDT').map((item: any) => item.symbol)
+    fetch(url, { signal: controller.signal }).then(response => response.json() as Promise<unknown>).then(data => {
+      const symbols = parseFuturesSymbols(data, source)
       if (symbols.length > 20) setFuturesCoins(symbols.filter(symbol => !symbol.includes('_')))
-    }).catch(() => undefined)
+    }).catch(error => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setFuturesCoins(FALLBACK_FUTURES)
+    })
     return () => controller.abort()
   }, [source])
 
@@ -75,8 +96,8 @@ export function SettingsScreen() {
   }
 
   const handleWeight = (k: 'w1' | 'w2' | 'w3' | 'w4' | 'w5' | 'w6', v: number) => {
-    const nw = { ...weights, [k]: v }
-    setWeights(nw as any)
+    const next = { ...weights, [k]: v }
+    setWeights(next)
   }
 
   const total = weights.w1 + weights.w2 + weights.w3 + weights.w4 + weights.w5 + weights.w6
@@ -110,7 +131,7 @@ export function SettingsScreen() {
           ))}
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
-          OKX varsayılan (TR erişim garantisi), Binance fallback
+          OKX varsayılan, Binance fallback • erişim ağ ve bölgeye göre değişebilir
         </div>
       </div>
 

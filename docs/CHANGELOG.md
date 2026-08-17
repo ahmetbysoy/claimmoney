@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Kept OKX trade and mark-price semantics distinct through runtime use (mark is non-executable context); native book updates now reach the canonical delta path with `prevSeqId` gap resynchronization.
+- Documented Binance partial depth as top-N snapshots and added bounded adapter diagnostics instead of silent parse failures.
+- Retained bounded full book maps beyond visible depth so hidden levels survive top-level deletions.
+- Added Binance liquidation-stream normalization and wired liquidation events into runtime detector inputs.
+- Added an injectable runtime composition root, extracted approved-signal execution coordination, owned subscription disposal, 250 ms read-model publication and cached immutable signal snapshots.
+- Replaced scalar paper depth with side-specific volume-weighted book walking, insufficient-liquidity rejection and bounded slippage.
+- Renamed the non-annualized paper metric to `returnQuality` and the simplified margin screen to `liqPriceEstimate`.
+- Made uncalibrated output explicitly score strength; research calibration gaps now use only observations carrying an actual calibrated probability.
+- Added default neutral dwell, immediate persisted cooldown ownership after a fired transition, configurable wall relevance and performance-risk priors.
+- Added exchange adapter, book retention/resync, FSM lifecycle, paper depth/slippage, feature-window and runtime collaborator regression coverage.
+
 ## 2.1.0 — 2026-08-17
 
 - Added minute/page-lifecycle checkpoints into a bounded 5,000-observation local research repository.

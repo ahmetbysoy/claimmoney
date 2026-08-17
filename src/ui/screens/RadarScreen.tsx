@@ -16,7 +16,7 @@ export function RadarScreen() {
   const [pulse, setPulse] = useState(false)
 
   const score = metrics.score
-  const confidence = Math.min(100, Math.round((Math.abs(score) / 1.2) * 100))
+  const confidence = Math.min(100, Math.round((Math.abs(score) / 3) * 100))
   const side: 'BUY' | 'SELL' | 'NEUTRAL' = score > threshold ? 'BUY' : score < -threshold ? 'SELL' : 'NEUTRAL'
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export function RadarScreen() {
         <div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: 0.5 }}>SON SİNYAL</div>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: lastSignal ? (lastSignal.side === 'BUY' ? 'var(--green)' : 'var(--red)') : 'var(--muted)' }}>
-            {lastSignal ? `${lastSignal.side} • ${lastSignal.confidence}% • $${(lastSignal as any).priceStr || lastSignal.price}` : 'Henüz sinyal yok — radar tarıyor...'}
+            {lastSignal ? `${lastSignal.side} • ${lastSignal.confidence}% ${lastSignal.calibratedProbability == null ? 'skor gücü' : 'kalibre olasılık'} • $${lastSignal.priceStr || lastSignal.price}` : 'Henüz sinyal yok — radar tarıyor...'}
           </div>
           {lastSignal && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>

@@ -10,7 +10,10 @@ export interface ResearchObservation {
   strategyVersion: string
   side: SignalSide
   score: number
+  /** Legacy/display strength. It is not assumed to be a probability. */
   confidence: number
+  /** Present only when the runtime had enough prior observations for empirical calibration. */
+  calibratedProbability?: number | null
   entry: number
   entryTs: number
   regime: string

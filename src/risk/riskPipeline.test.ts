@@ -17,8 +17,8 @@ describe('approved-signal risk pipeline', () => {
     expect(Number((plan.entry! * 100).toFixed(8)) % 1).toBe(0)
   })
 
-  it('recomputes all position fields after Kelly scaling', () => {
-    const sizer = new PositionSizer({ balance: 1000, riskPct: 1, maxLeverage: 10, feeRateBps: 4, kellyFraction: .25, maintenanceMarginRate: .004 })
+  it('recomputes all position fields after performance-risk scaling', () => {
+    const sizer = new PositionSizer({ balance: 1000, riskPct: 1, maxLeverage: 10, feeRateBps: 4, performanceRiskScaleFraction: .25, maintenanceMarginRate: .004 })
     const position = sizer.size({ direction: 'LONG', confidence: 80, entry: 100, stop: 98, tp1: 104, tp2: 106, rr: 2, ts: 1 },
       { ...DEFAULT_INSTRUMENT, tickSize: .01, lotSize: .001, maxLeverage: 10 }, { trades: 20, wins: 12 })!
     expect(position.notional).toBeCloseTo(position.qty * 100)

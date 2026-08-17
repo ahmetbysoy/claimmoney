@@ -1,220 +1,194 @@
-import type { WsAdapter, WsEvent } from '../types'
-import type { NormalizedTrade, NormalizedDepth } from '../../../types'
+import type { AdapterEvent, ConnectionState, ExchangeAdapter } from '../types'
+import { AdapterDiagnostics } from '../adapterDiagnostics'
 
-export function crc32Signed(value: string): number {
-  let crc = 0xffffffff
-  for (let i = 0; i < value.length; i += 1) {
-    crc ^= value.charCodeAt(i)
-    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+const crcTable = (() => {
+  const table = new Int32Array(256)
+  for (let index = 0; index < 256; index += 1) {
+    let value = index
+    for (let bit = 0; bit < 8; bit += 1) value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1)
+    table[index] = value | 0
   }
-  return (crc ^ 0xffffffff) | 0
-}
+  return table
+})()
 
-export const shouldVerifyOkxChecksum = (value: number): boolean => Number.isFinite(value) && value !== 0
+export function crc32Signed(input: string): number {
+  let crc = -1
+  const bytes = new TextEncoder().encode(input)
+  for (const byte of bytes) crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xff]
+  return (crc ^ -1) | 0
+}
 
 export function okxChecksum(bids: [string, string][], asks: [string, string][]): number {
   const parts: string[] = []
-  const levels = Math.max(Math.min(25, bids.length), Math.min(25, asks.length))
-  for (let i = 0; i < levels; i += 1) {
-    if (i < bids.length && i < 25) parts.push(bids[i][0], bids[i][1])
-    if (i < asks.length && i < 25) parts.push(asks[i][0], asks[i][1])
+  for (let index = 0; index < Math.max(bids.length, asks.length) && index < 25; index += 1) {
+    if (bids[index]) parts.push(bids[index][0], bids[index][1])
+    if (asks[index]) parts.push(asks[index][0], asks[index][1])
   }
   return crc32Signed(parts.join(':'))
 }
 
-/**
- * OKX WS Adapter - TR erişim garantisi için varsayılan
- * wss://ws.okx.com:8443/ws/v5/public
- * Kanallar: trades, books (depth 20), tickers (mark)
- */
-export class OkxAdapter implements WsAdapter {
-  id = 'okx'
-  private ws: WebSocket | null = null
-  private cb: ((ev: WsEvent) => void) | null = null
-  private symbol = 'BTC-USDT'
-  private state: 'connected' | 'connecting' | 'disconnected' = 'disconnected'
-  // Local book for incremental updates (action: snapshot/update)
-  private localBids: Map<string, string> = new Map()
-  private localAsks: Map<string, string> = new Map()
-  private lastChecksum: number | null = null
+export function shouldVerifyOkxChecksum(checksum: number): boolean {
+  return Number.isFinite(checksum) && checksum !== 0
+}
 
-  onEvent(cb: (ev: WsEvent) => void): void {
-    this.cb = cb
-  }
+type RawLevel = [string, string]
+type BookLevel = [number, number]
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === 'object' && value !== null ? value as Record<string, unknown> : null
 
-  getConnectionState() {
-    return this.state
-  }
+const parseRawLevels = (value: unknown): RawLevel[] => {
+  if (!Array.isArray(value)) return []
+  return value.flatMap(level => {
+    if (!Array.isArray(level) || level.length < 2) return []
+    const price = String(level[0]), qty = String(level[1])
+    return Number.isFinite(Number(price)) && Number.isFinite(Number(qty)) ? [[price, qty] as RawLevel] : []
+  })
+}
+const toBookLevels = (levels: RawLevel[]): BookLevel[] => levels.map(([price, qty]) => [Number(price), Number(qty)])
+
+/** OKX books adapter. Snapshots and incremental updates retain their native semantics. */
+export class OkxAdapter implements ExchangeAdapter {
+  readonly id = 'okx'
+  private socket: WebSocket | null = null
+  private state: ConnectionState = 'disconnected'
+  private callback: (event: AdapterEvent) => void = () => {}
+  private symbol = ''
+  private bids = new Map<string, string>()
+  private asks = new Map<string, string>()
+  private diagnostics = new AdapterDiagnostics('okx', event => this.callback(event))
+
+  onEvent(cb: (event: AdapterEvent) => void): void { this.callback = cb }
+  getConnectionState(): ConnectionState { return this.state }
 
   connect(symbol: string): void {
-    // Futures only: BTCUSDT -> BTC-USDT-SWAP, BTC-USDT -> BTC-USDT-SWAP
-    const clean = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '')
-    const base = clean.endsWith('USDT') ? clean.slice(0, -4) : clean
-    this.symbol = `${base}-USDT-SWAP`
-    this.disconnect()
-    this.localBids.clear()
-    this.localAsks.clear()
-    this.lastChecksum = null
-    this.state = 'connecting'
-    this.cb?.({ type: 'status', status: 'connecting', message: 'OKX connecting...' })
-
-    const url = 'wss://ws.okx.com:8443/ws/v5/public'
-    this.ws = new WebSocket(url)
-
-    this.ws.onopen = () => {
+    this.disconnect(); this.diagnostics.reset(); this.state = 'connecting'; this.symbol = this.toInstrument(symbol)
+    const socket = new WebSocket('wss://ws.okx.com:8443/ws/v5/public')
+    this.socket = socket
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ op: 'subscribe', args: [
+        { channel: 'books', instId: this.symbol },
+        { channel: 'trades', instId: this.symbol },
+        { channel: 'mark-price', instId: this.symbol }
+      ] }))
       this.state = 'connected'
-      this.cb?.({ type: 'status', status: 'connected' })
-      // Subscribe
-      const instId = this.symbol // e.g., BTC-USDT
-      const sub = {
-        op: 'subscribe',
-        args: [
-          { channel: 'trades', instId },
-          { channel: 'books', instId },
-          { channel: 'tickers', instId }
-        ]
+      this.callback({ type: 'status', status: 'connected', source: 'okx', ts: Date.now() })
+    }
+    socket.onmessage = message => this.handle(message.data, symbol)
+    socket.onerror = () => {
+      this.state = 'error'
+      const ts = Date.now()
+      this.diagnostics.report('socket-error', 'OKX WebSocket reported an error', ts)
+      this.callback({ type: 'status', status: 'error', source: 'okx', ts })
+    }
+    socket.onclose = () => {
+      if (this.state === 'disconnected') return
+      this.state = 'disconnected'
+      this.callback({ type: 'status', status: 'disconnected', source: 'okx', ts: Date.now() })
+    }
+  }
+
+  private handle(raw: unknown, requestedSymbol: string): void {
+    try {
+      const payload = asRecord(JSON.parse(String(raw)))
+      if (!payload) throw new Error('payload is not an object')
+      if (payload.event === 'error') {
+        const message = String(payload.msg ?? 'subscription rejected')
+        this.diagnostics.report('subscription-error', `OKX subscription error: ${message}`)
+        return
       }
-      this.ws?.send(JSON.stringify(sub))
-    }
-
-    this.ws.onmessage = (event) => {
-      if (event.data === 'pong') { this.cb?.({ type: 'heartbeat' }); return }
-      try {
-        const msg = JSON.parse(event.data as string)
-        if (msg.event === 'subscribe' || msg.event === 'error') return
-        if (!msg.data || !Array.isArray(msg.data)) return
-        // Determine channel
-        const channel: string = msg.arg?.channel
-        if (channel === 'trades') {
-          for (const t of msg.data) {
-            // OKX trade: { px, sz, side: buy/sell, ts }
-            const priceStr: string = t.px
-            const trade: NormalizedTrade = {
-              price: Number(priceStr),
-              priceStr,
-              qty: parseFloat(t.sz),
-              side: t.side === 'buy' ? 'buy' : 'sell',
-              ts: Number(t.ts),
-              tradeId: String(t.tradeId ?? ''),
-              notional: Number(priceStr) * parseFloat(t.sz),
-              exchange: 'okx',
-              symbol: this.symbol,
-              receiveTs: Date.now()
-            }
-            this.cb?.({ type: 'trade', data: trade })
-          }
-        } else if (channel === 'books') {
-          // OKX books: incremental update (action: 'snapshot' or 'update') + checksum
-          // Snapshot = tam 400 seviye, Update = sadece değişen seviyeler -> merge et
-          const action: string | undefined = (msg as any).action // 'snapshot' | 'update'
-          const checksum: number | undefined = msg.data?.[0]?.checksum
-
-          for (const b of msg.data) {
-            const incomingBids: string[][] = b.bids || []
-            const incomingAsks: string[][] = b.asks || []
-
-            if (action === 'snapshot') {
-              // Snapshot: tam değiştir
-              this.localBids.clear()
-              this.localAsks.clear()
-              for (const [px, sz] of incomingBids) {
-                const qty = parseFloat(sz)
-                if (qty > 0) this.localBids.set(px, sz)
-              }
-              for (const [px, sz] of incomingAsks) {
-                const qty = parseFloat(sz)
-                if (qty > 0) this.localAsks.set(px, sz)
-              }
-            } else {
-              // Update: merge et (piramit'teki applyDiff mantığı gibi)
-              for (const [px, sz] of incomingBids) {
-                const qty = parseFloat(sz)
-                if (qty === 0) this.localBids.delete(px)
-                else this.localBids.set(px, sz)
-              }
-              for (const [px, sz] of incomingAsks) {
-                const qty = parseFloat(sz)
-                if (qty === 0) this.localAsks.delete(px)
-                else this.localAsks.set(px, sz)
-              }
-            }
-
-            const checksumBids = Array.from(this.localBids.entries())
-              .sort((a, b) => Number(b[0]) - Number(a[0])).slice(0, 25) as [string, string][]
-            const checksumAsks = Array.from(this.localAsks.entries())
-              .sort((a, b) => Number(a[0]) - Number(b[0])).slice(0, 25) as [string, string][]
-            const remoteChecksum = Number(b.checksum ?? checksum)
-            // OKX currently emits checksum=0 on books when CRC validation is disabled for the channel.
-            // Verify every non-zero checksum; zero is an explicit "not supplied" sentinel.
-            if (shouldVerifyOkxChecksum(remoteChecksum)) {
-              const computedChecksum = okxChecksum(checksumBids, checksumAsks)
-              if (computedChecksum !== remoteChecksum) {
-                this.localBids.clear(); this.localAsks.clear(); this.lastChecksum = null
-                this.state = 'disconnected'
-                this.cb?.({ type: 'status', status: 'disconnected', message: `OKX checksum mismatch (${computedChecksum} != ${remoteChecksum}); resyncing` })
-                this.ws?.close(4000, 'checksum mismatch')
-                return
-              }
-              this.lastChecksum = remoteChecksum
-            }
-
-            // Local book'u sıralı NormalizedDepth'e çevir
-            const sortedBids = Array.from(this.localBids.entries())
-              .map(([p, q]) => [parseFloat(p), parseFloat(q)] as [number, number])
-              .sort((a, b) => b[0] - a[0])
-              .slice(0, 50)
-            const sortedAsks = Array.from(this.localAsks.entries())
-              .map(([p, q]) => [parseFloat(p), parseFloat(q)] as [number, number])
-              .sort((a, b) => a[0] - b[0])
-              .slice(0, 50)
-
-            const depth: NormalizedDepth = {
-              bids: sortedBids,
-              asks: sortedAsks,
-              ts: Number(b.ts),
-              kind: 'snapshot',
-              lastSeq: Number(b.seqId ?? 0),
-              checksum,
-              exchange: 'okx',
-              symbol: this.symbol,
-              receiveTs: Date.now()
-            }
-            this.cb?.({ type: 'depth', data: depth })
-          }
-        } else if (channel === 'tickers') {
-          for (const tk of msg.data) {
-            const priceStr: string = tk.last
-            const mark = { price: Number(priceStr), priceStr, ts: Number(tk.ts), exchange: 'okx' as const, symbol: this.symbol, receiveTs: Date.now() }
-            this.cb?.({ type: 'mark', data: mark })
-            // Also treat as price update via mark
-          }
-        }
-      } catch {}
-    }
-
-    this.ws.onerror = () => {
-      this.state = 'disconnected'
-      this.cb?.({ type: 'status', status: 'disconnected', message: 'OKX error' })
-    }
-
-    this.ws.onclose = () => {
-      this.state = 'disconnected'
-      this.cb?.({ type: 'status', status: 'disconnected' })
+      if (payload.event === 'subscribe' || payload.event === 'pong') return
+      const arg = asRecord(payload.arg), channel = String(arg?.channel ?? '')
+      const rows = Array.isArray(payload.data) ? payload.data : []
+      if (!channel || !rows.length) throw new Error('missing channel or data')
+      for (const rowValue of rows) {
+        const row = asRecord(rowValue)
+        if (!row) throw new Error('data row is not an object')
+        if (channel === 'books') this.handleBook(payload.action, row, requestedSymbol)
+        else if (channel === 'trades') this.handleTrade(row, requestedSymbol)
+        else if (channel === 'mark-price') this.handleMarkPrice(row, requestedSymbol)
+      }
+    } catch (error) {
+      this.diagnostics.report('malformed-message', `Dropped OKX message: ${error instanceof Error ? error.message : 'unknown parse error'}`)
     }
   }
 
+  private handleBook(actionValue: unknown, data: Record<string, unknown>, requestedSymbol: string): void {
+    const action = String(actionValue ?? 'snapshot')
+    if (action !== 'snapshot' && action !== 'update') throw new Error(`unsupported books action: ${action}`)
+    const rawBids = parseRawLevels(data.bids), rawAsks = parseRawLevels(data.asks)
+    const eventTs = Number(data.ts ?? Date.now()), seq = Number(data.seqId ?? 0)
+    if (!Number.isFinite(eventTs) || !Number.isFinite(seq)) throw new Error('invalid books timestamp or sequence')
+
+    if (action === 'snapshot') {
+      this.bids.clear(); this.asks.clear()
+      this.applyLevels(this.bids, rawBids); this.applyLevels(this.asks, rawAsks)
+    } else {
+      this.applyLevels(this.bids, rawBids); this.applyLevels(this.asks, rawAsks)
+    }
+    this.pruneMap(this.bids, 'desc'); this.pruneMap(this.asks, 'asc')
+
+    const sortedRawBids = [...this.bids.entries()].sort((a, b) => Number(b[0]) - Number(a[0])).slice(0, 400)
+    const sortedRawAsks = [...this.asks.entries()].sort((a, b) => Number(a[0]) - Number(b[0])).slice(0, 400)
+    const checksum = Number(data.checksum ?? 0)
+    if (shouldVerifyOkxChecksum(checksum) && okxChecksum(sortedRawBids.slice(0, 25), sortedRawAsks.slice(0, 25)) !== (checksum | 0)) {
+      this.bids.clear(); this.asks.clear()
+      this.diagnostics.report('checksum-mismatch', 'OKX order-book checksum mismatch; reconnecting for a fresh snapshot', eventTs)
+      this.callback({ type: 'status', status: 'error', source: 'okx', message: 'checksum mismatch; resync required', ts: eventTs })
+      this.socket?.close()
+      return
+    }
+
+    const receiveTs = Date.now()
+    if (action === 'snapshot') {
+      this.callback({
+        kind: 'bookSnapshot', exchange: 'okx', symbol: requestedSymbol, eventTs, receiveTs, seq,
+        bids: toBookLevels(sortedRawBids), asks: toBookLevels(sortedRawAsks), checksum
+      })
+      return
+    }
+
+    const previousSeq = Number(data.prevSeqId)
+    if (!Number.isFinite(previousSeq)) throw new Error('incremental books update is missing prevSeqId')
+    this.callback({
+      kind: 'bookDelta', exchange: 'okx', symbol: requestedSymbol, eventTs, receiveTs,
+      firstSeq: previousSeq + 1, lastSeq: seq, previousSeq,
+      bids: toBookLevels(rawBids), asks: toBookLevels(rawAsks)
+    })
+  }
+
+  private handleTrade(data: Record<string, unknown>, requestedSymbol: string): void {
+    const price = Number(data.px), qty = Number(data.sz), eventTs = Number(data.ts ?? Date.now())
+    if (!(price > 0) || !(qty > 0) || !Number.isFinite(eventTs)) throw new Error('invalid trade payload')
+    this.callback({
+      kind: 'trade', exchange: 'okx', symbol: requestedSymbol, eventTs, receiveTs: Date.now(),
+      trade: { price, priceStr: String(data.px), qty, side: data.side === 'buy' ? 'buy' : 'sell', ts: eventTs, notional: price * qty }
+    })
+  }
+
+  private handleMarkPrice(data: Record<string, unknown>, requestedSymbol: string): void {
+    const price = Number(data.markPx), eventTs = Number(data.ts ?? Date.now())
+    if (!(price > 0) || !Number.isFinite(eventTs)) throw new Error('invalid mark-price payload')
+    this.callback({ kind: 'markPrice', exchange: 'okx', symbol: requestedSymbol, eventTs, receiveTs: Date.now(), price })
+  }
+
+  private applyLevels(target: Map<string, string>, levels: RawLevel[]): void {
+    for (const [price, qty] of levels) Number(qty) === 0 ? target.delete(price) : target.set(price, qty)
+  }
+  private pruneMap(target: Map<string, string>, direction: 'asc' | 'desc'): void {
+    if (target.size <= 1_000) return
+    const retained = [...target.entries()].sort((a, b) => direction === 'desc' ? Number(b[0]) - Number(a[0]) : Number(a[0]) - Number(b[0])).slice(0, 1_000)
+    target.clear()
+    for (const [price, qty] of retained) target.set(price, qty)
+  }
+  private toInstrument(symbol: string): string {
+    const clean = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '')
+    return `${clean.replace(/USDT$/, '')}-USDT-SWAP`
+  }
   ping(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send('ping')
+    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send('ping')
   }
-
   disconnect(): void {
-    this.state = 'disconnected'
-    this.localBids.clear()
-    this.localAsks.clear()
-    this.lastChecksum = null
-    if (this.ws) {
-      try { this.ws.close() } catch {}
-      this.ws = null
-    }
+    this.state = 'disconnected'; this.bids.clear(); this.asks.clear()
+    if (this.socket) { this.socket.onclose = null; this.socket.close(); this.socket = null }
   }
 }

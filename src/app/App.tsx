@@ -35,8 +35,10 @@ export default function App() {
 
   useEffect(() => {
     useDataStore.getState().resetReadModel()
+    let manager: WsManager | null = null
     const market = new MarketRuntime({
       settings: () => useSettingsStore.getState(), enableNetworkServices: true,
+      onBookResyncRequired: context => manager?.resync(`Book gap: expected ${context.expected}, received ${context.received}`),
       onSnapshot: snapshot => useDataStore.getState().applyRuntimeSnapshot(snapshot),
       onSignal: signal => {
         const settings = useSettingsStore.getState()
@@ -47,28 +49,26 @@ export default function App() {
     })
     setRuntime(market); market.start()
 
-    const manager = new WsManager(event => {
-      if (event.type === 'heartbeat') return
-      if (event.type === 'status') {
-        setConnection(event.status)
+    manager = new WsManager(event => {
+      if ('type' in event) {
+        if (event.type === 'diagnostic') {
+          reportClientError(new Error(event.message), `websocket.${event.code}`, {
+            source: event.source, symbol, droppedMessages: event.droppedMessages
+          })
+          return
+        }
+        const visibleState = event.status === 'connected' || event.status === 'connecting' ? event.status : 'disconnected'
+        setConnection(visibleState)
         if (event.status === 'disconnected') {
           const settings = useSettingsStore.getState()
           playDisconnect({ sound: settings.sound, haptics: false })
           reportClientError(new Error(event.message ?? 'Unexpected WebSocket disconnect'), 'websocket.disconnect', {
-            source, symbol
+            source: event.source, symbol
           })
         }
         return
       }
-      const receiveTs = Date.now()
-      let marketEvent: MarketEvent
-      if (event.type === 'trade') marketEvent = { kind: 'trade', exchange: source, symbol, eventTs: event.data.ts, receiveTs, trade: event.data }
-      else if (event.type === 'mark') marketEvent = { kind: 'markPrice', exchange: source, symbol, eventTs: event.data.ts, receiveTs, price: event.data.price, priceStr: event.data.priceStr }
-      else if (event.data.kind === 'delta') marketEvent = { kind: 'bookDelta', exchange: source, symbol, eventTs: event.data.ts, receiveTs,
-        bids: event.data.bids, asks: event.data.asks, firstSeq: event.data.firstSeq ?? 0, lastSeq: event.data.lastSeq ?? 0, checksum: event.data.checksum }
-      else marketEvent = { kind: 'bookSnapshot', exchange: source, symbol, eventTs: event.data.ts, receiveTs,
-        bids: event.data.bids, asks: event.data.asks, seq: event.data.lastSeq ?? 0, checksum: event.data.checksum }
-      market.ingest(marketEvent)
+      market.ingest(event)
     })
     manager.connect(source as Source, symbol)
 
@@ -89,7 +89,7 @@ export default function App() {
     }
     return () => {
       window.clearInterval(checkpointTimer); document.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('pagehide', checkpoint)
-      manager.dispose(); checkpoint(); market.dispose(); setRuntime(null)
+      manager?.dispose(); checkpoint(); market.dispose(); setRuntime(null)
     }
   }, [source, symbol])
 

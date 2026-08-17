@@ -26,7 +26,8 @@ export function computeConfidence(score: number, calibratedProbability?: number 
   if (calibratedProbability !== undefined && calibratedProbability !== null && Number.isFinite(calibratedProbability)) {
     return Math.round(Math.max(0, Math.min(1, calibratedProbability)) * 100)
   }
-  return Math.min(100, Math.round(Math.abs(score) / 1.2 * 100))
+  // Uncalibrated fallback is explicitly a score-strength heuristic. computeScore is clamped to ±3.
+  return Math.min(100, Math.round(Math.abs(score) / 3 * 100))
 }
 
 export interface EngineConfig {
@@ -41,14 +42,13 @@ export interface EngineTickParams {
 }
 
 export class SignalEngine {
-  state: EngineState = 'IDLE'
+  private state: EngineState = 'IDLE'
   private consecutive = 0
   private consecutiveSide: SignalSide | null = null
   private firstQualifiedAt = 0
   private lastQualifiedAt = 0
   private lastFiredAt = 0
   private lastFiredSide: SignalSide | null = null
-  private lastScore = 0
   private neutralSince = 0
   private hasSeenNeutralSinceFired = true
   private sequence = 0
@@ -63,7 +63,7 @@ export class SignalEngine {
       threshold: Math.max(0.01, config.threshold), cooldownMs: Math.max(0, config.cooldownMs),
       hysteresis: Math.max(0, Math.min(config.threshold, config.hysteresis)), confirmations: Math.max(1, Math.round(config.confirmations ?? 2)),
       minConfirmationMs: Math.max(0, config.minConfirmationMs ?? 0), maxConfirmationGapMs: Math.max(1, config.maxConfirmationGapMs ?? 2_000),
-      neutralDwellMs: Math.max(0, config.neutralDwellMs ?? 0)
+      neutralDwellMs: Math.max(0, config.neutralDwellMs ?? 250)
     }
   }
 
@@ -99,11 +99,9 @@ export class SignalEngine {
 
   tick(params: EngineTickParams): EngineTickResult {
     const { score, ts } = params
-    this.lastScore = score
     this.trackNeutral(score, ts)
     const confidence = computeConfidence(score, params.calibratedProbability)
 
-    if (this.state === 'FIRED') this.state = 'COOLDOWN'
     if (this.state === 'COOLDOWN') {
       if (ts - this.lastFiredAt < this.config.cooldownMs) return { state: this.state, signal: null, score, confidence, reason: 'cooldown' }
       this.state = 'IDLE'
@@ -142,19 +140,17 @@ export class SignalEngine {
     }
 
     const signal = this.makeSignal(params)
-    this.state = 'FIRED'; this.lastFiredAt = ts; this.lastFiredSide = signal.side
-    this.hasSeenNeutralSinceFired = false; this.neutralSince = 0; this.resetCandidate(); this.state = 'FIRED'
-    return { state: this.state, signal, score, confidence: signal.confidence }
+    this.lastFiredAt = ts; this.lastFiredSide = signal.side
+    this.hasSeenNeutralSinceFired = false; this.neutralSince = 0
+    this.resetCandidate()
+    // FIRED is the result of this transition; the persisted FSM state owns the cooldown immediately.
+    this.state = 'COOLDOWN'
+    return { state: 'FIRED', signal, score, confidence: signal.confidence }
   }
 
   getState(): EngineState { return this.state }
   reset(): void {
     this.state = 'IDLE'; this.resetCandidate(); this.lastFiredAt = 0; this.lastFiredSide = null
-    this.lastScore = 0; this.neutralSince = 0; this.hasSeenNeutralSinceFired = true; this.sequence = 0
-  }
-  _getInternal() {
-    return { consecutive: this.consecutive, consecutiveSide: this.consecutiveSide, firstQualifiedAt: this.firstQualifiedAt,
-      lastFiredAt: this.lastFiredAt, lastFiredSide: this.lastFiredSide, lastScore: this.lastScore,
-      hasSeenNeutralSinceFired: this.hasSeenNeutralSinceFired }
+    this.neutralSince = 0; this.hasSeenNeutralSinceFired = true; this.sequence = 0
   }
 }

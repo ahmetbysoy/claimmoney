@@ -1,5 +1,6 @@
 import type { Clock } from '../../application/clock'
 import { systemClock } from '../../application/clock'
+import { TypedEventBus } from '../../application/eventBus'
 import type { Side } from '../../types'
 
 export type VpinLabel = 'Warming' | 'Low' | 'Medium' | 'Toxic'
@@ -12,14 +13,14 @@ export interface VPINConfig {
   minWarmupBuckets: number; rollingBucketFraction: number
 }
 
-type VpinListener = (state: VPINState) => void
+type VpinEvents = { 'vpin:update': VPINState }
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
 
 export class VPIN {
   private state: VPINState
   private config: VPINConfig
   private lastBucketTs = 0
-  private listeners = new Set<VpinListener>()
+  private events = new TypedEventBus<VpinEvents>()
 
   constructor(config?: Partial<VPINConfig>, private readonly clock: Clock = systemClock) {
     this.config = {
@@ -34,11 +35,8 @@ export class VPIN {
       bucketSize: this.config.minBucketNotional, valid: false, warmup: 0, lastUpdateTs: 0 }
   }
 
-  on(event: 'vpin:update', fn: VpinListener): () => void {
-    if (event !== 'vpin:update') return () => undefined
-    this.listeners.add(fn); return () => this.listeners.delete(fn)
-  }
-  private emit(): void { const snapshot = this.getState(); for (const fn of [...this.listeners]) fn(snapshot) }
+  on(event: 'vpin:update', fn: (state: VPINState) => void): () => void { return this.events.on(event, fn) }
+  private emit(): void { this.events.emit('vpin:update', this.getState()) }
 
   private closeBucket(ts: number): void {
     const total = this.state.currentBuy + this.state.currentSell

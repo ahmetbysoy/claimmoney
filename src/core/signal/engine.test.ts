@@ -15,16 +15,16 @@ describe('Composite Score', () => {
     expect((zeroW as any).w4).toBeCloseTo(0.16, 5)
     expect((zeroW as any).w6).toBeCloseTo(0.13, 5)
 
-    const conf = computeConfidence(1.2)
+    const conf = computeConfidence(3)
     expect(conf).toBe(100)
-    const confHalf = computeConfidence(0.6)
+    const confHalf = computeConfidence(1.5)
     expect(confHalf).toBe(50)
   })
 })
 
 describe('Signal Engine State Machine', () => {
   it('6. Sinyal Durum Makinesi histerezis kontrolü', () => {
-    const engine = new SignalEngine({ threshold: 0.6, cooldownMs: 15000, hysteresis: 0.3 })
+    const engine = new SignalEngine({ threshold: 0.6, cooldownMs: 15000, hysteresis: 0.3, neutralDwellMs: 0 })
     const weights = { w1: 0.4, w2: 0.3, w3: 0.3 }
 
     // 2 tick üst üste threshold üstünde -> FIRED
@@ -60,7 +60,7 @@ describe('Signal Engine State Machine', () => {
   })
 
   it('7. Cooldown süresi engelleyici testi', () => {
-    const engine = new SignalEngine({ threshold: 0.6, cooldownMs: 5000, hysteresis: 0.3 })
+    const engine = new SignalEngine({ threshold: 0.6, cooldownMs: 5000, hysteresis: 0.3, neutralDwellMs: 0 })
     const w = { w1: 0.4, w2: 0.3, w3: 0.3 }
     engine.tick({ score: 0.8, price: 50000, breakdown: { cvd: 1, obi: 0, vel: 0 }, weights: w, ts: 1000 })
     const fired = engine.tick({ score: 0.8, price: 50000, breakdown: { cvd: 1, obi: 0, vel: 0 }, weights: w, ts: 2000 })

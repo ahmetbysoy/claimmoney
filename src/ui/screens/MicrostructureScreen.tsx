@@ -6,6 +6,8 @@ export function MicrostructureScreen() {
   const book = useDataStore(state => state.book)
   const detectors = useDataStore(state => state.detectorSignals)
   const metrics = useDataStore(state => state.metrics)
+  const price = useDataStore(state => state.price)
+  const markPrice = useDataStore(state => state.markPrice)
   const regime = useDataStore(state => state.regime)
   const cross = useDataStore(state => state.crossExchange)
   const arbitrage = useDataStore(state => state.arbitrage)
@@ -17,6 +19,7 @@ export function MicrostructureScreen() {
   return <div className="scrollbar-thin" style={{ padding: 14, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
     <section style={card}><div style={title}>DATA QUALITY & REGIME</div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}><b style={{ color: metrics.quality === 'good' ? 'var(--green)' : 'var(--amber)' }}>{metrics.quality.toUpperCase()}</b><b>{regime.regime.toUpperCase()} • {(regime.confidence * 100).toFixed(0)}%</b></div>
+      <div style={muted}>Trade {number(price)} • Mark {markPrice > 0 ? number(markPrice) : '—'} (non-executable)</div>
       <div style={muted}>{regime.reasons.join(' • ')}</div>
       {metrics.filterReasons.map(reason => <div key={reason} style={{ ...muted, color: 'var(--red)' }}>× {reason}</div>)}
     </section>

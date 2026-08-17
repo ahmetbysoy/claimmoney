@@ -74,12 +74,16 @@ export function ResearchScreen() {
     <GroupTable title="SEMBOL PERFORMANSI" items={report.bySymbol} />
 
     <section style={card}>
-      <div style={title}>KALİBRASYON</div>
+      <div style={title}>SKOR–SONUÇ VE KALİBRASYON</div>
       {!report.calibration.length ? <div style={muted}>Olgunlaşmış sonuç bekleniyor.</div> : report.calibration.map(bin => <div key={bin.lower} style={row}>
         <span>|score| {bin.lower.toFixed(2)}–{bin.upper.toFixed(2)} <small style={muted}>n={bin.samples}</small></span>
-        <span style={{ textAlign: 'right' }}>Gözlenen {(bin.observedWinRate * 100).toFixed(0)}% • shrunk {(bin.shrunkenProbability * 100).toFixed(0)}%<br /><small style={{ color: Math.abs(bin.calibrationGap) <= .1 ? 'var(--green)' : 'var(--amber)' }}>confidence gap {(bin.calibrationGap * 100).toFixed(0)}pp</small></span>
+        <span style={{ textAlign: 'right' }}>Gözlenen {(bin.observedWinRate * 100).toFixed(0)}% • shrunk {(bin.shrunkenProbability * 100).toFixed(0)}%<br />
+          {bin.calibrationGap === null
+            ? <small style={muted}>Kalibre tahmin yok</small>
+            : <small style={{ color: Math.abs(bin.calibrationGap) <= .1 ? 'var(--green)' : 'var(--amber)' }}>olasılık farkı {(bin.calibrationGap * 100).toFixed(0)}pp • n={bin.predictedSamples}</small>}
+        </span>
       </div>)}
-      <div style={muted}>Küçük örneklerde Beta(2,2) shrinkage hesaplanır; ekran gözlenen oranı ve güven farkını gösterir.</div>
+      <div style={muted}>Beta(2,2) shrinkage gözlenen oranı dengeler. Olasılık farkı yalnızca gerçekten kalibre edilmiş tahminler için gösterilir; strateji ağırlıkları otomatik öğrenilmez.</div>
     </section>
 
     <section style={card}>

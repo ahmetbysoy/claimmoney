@@ -5,7 +5,8 @@ import type { ResearchObservation } from './researchRepository'
 export interface ResearchGroupMetric extends FoldMetrics { key: string }
 export interface CalibrationBucket {
   lower: number; upper: number; samples: number; wins: number
-  observedWinRate: number; shrunkenProbability: number; averageConfidence: number; calibrationGap: number
+  observedWinRate: number; shrunkenProbability: number
+  predictedSamples: number; averagePredictedProbability: number | null; calibrationGap: number | null
 }
 export type ResearchReadiness = 'collecting' | 'exploratory' | 'review-ready'
 export interface ResearchReport {
@@ -56,9 +57,14 @@ function calibration(outcomes: Outcome[], binWidth = 0.25): CalibrationBucket[] 
     const wins = values.filter(item => item.value > 0).length
     const observedWinRate = wins / values.length
     const shrunkenProbability = (wins + 2) / (values.length + 4)
-    const averageConfidence = values.reduce((sum, item) => sum + item.observation.confidence / 100, 0) / values.length
+    const predictions = values.map(item => item.observation.calibratedProbability)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    const averagePredictedProbability = predictions.length
+      ? predictions.reduce((sum, value) => sum + value, 0) / predictions.length
+      : null
     buckets.push({ lower, upper: lower + binWidth, samples: values.length, wins, observedWinRate,
-      shrunkenProbability, averageConfidence, calibrationGap: observedWinRate - averageConfidence })
+      shrunkenProbability, predictedSamples: predictions.length, averagePredictedProbability,
+      calibrationGap: averagePredictedProbability === null ? null : observedWinRate - averagePredictedProbability })
   }
   return buckets
 }

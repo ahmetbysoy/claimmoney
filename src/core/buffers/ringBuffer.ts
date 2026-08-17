@@ -23,12 +23,16 @@ export class RingBuffer<T> {
     }
   }
 
-  toArray(): T[] {
+  toArray(): T[] { return this.lastN(this.count) }
+
+  lastN(limit: number): T[] {
+    const requested = Number.isFinite(limit) ? Math.floor(limit) : 0
+    const length = Math.max(0, Math.min(this.count, requested))
     const out: T[] = []
-    for (let i = 0; i < this.count; i++) {
-      const idx = (this.head + i) % this.capacity
-      const v = this.buf[idx]
-      if (v !== undefined) out.push(v)
+    const start = this.count - length
+    for (let index = start; index < this.count; index += 1) {
+      const value = this.buf[(this.head + index) % this.capacity]
+      if (value !== undefined) out.push(value)
     }
     return out
   }

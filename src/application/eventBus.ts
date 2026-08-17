@@ -1,7 +1,7 @@
-export type EventMap = Record<string, unknown>
+export type EventMap = { [event: string]: unknown }
 export type Unsubscribe = () => void
 
-export class TypedEventBus<Events extends EventMap> {
+export class TypedEventBus<Events extends { [K in keyof Events]: unknown }> {
   private listeners = new Map<keyof Events, Set<(payload: Events[keyof Events]) => void>>()
 
   on<K extends keyof Events>(event: K, listener: (payload: Events[K]) => void): Unsubscribe {

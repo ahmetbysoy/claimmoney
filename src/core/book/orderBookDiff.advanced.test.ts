@@ -31,4 +31,21 @@ describe('OrderBookDiff advanced invariants', () => {
     snapshot.bids[0].qty = 999
     expect(book.getBook().bids[0].qty).toBe(1)
   })
+
+  it('retains hidden internal depth so deleted top levels reveal the next stored level', () => {
+    const book = new OrderBookDiff({ maxLevels: 2, maxStoredLevels: 10 })
+    book.applySnapshot('BTCUSDT', {
+      bids: [[100, 1], [99, 1], [98, 1]], asks: [[101, 1], [102, 1], [103, 1]], lastUpdateId: 10
+    })
+    expect(book.getBook().bids.map(level => level.price)).toEqual([100, 99])
+    expect(book.applyDelta({ bids: [[100, 0]], asks: [], U: 11, u: 11 })).toBe('applied')
+    expect(book.getBook().bids.map(level => level.price)).toEqual([99, 98])
+  })
+
+  it('uses an exchange-provided previous sequence when available', () => {
+    const book = new OrderBookDiff()
+    book.applySnapshot('BTCUSDT', { bids: [[100, 1]], asks: [[101, 1]], lastUpdateId: 10 })
+    expect(book.applyDelta({ bids: [], asks: [[101, 2]], U: 11, u: 15, previousSeq: 10 })).toBe('applied')
+    expect(book.applyDelta({ bids: [], asks: [], U: 16, u: 20, previousSeq: 14 })).toBe('gap')
+  })
 })

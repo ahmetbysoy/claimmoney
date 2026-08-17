@@ -34,7 +34,7 @@ export function SignalLed({ side, confidence }: Props) {
       </motion.div>
       {confidence !== undefined && side !== 'NEUTRAL' && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-          {confidence}% güven
+          {confidence}% skor gücü
         </div>
       )}
     </div>

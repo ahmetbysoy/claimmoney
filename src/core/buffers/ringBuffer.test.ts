@@ -13,6 +13,8 @@ describe('RingBuffer', () => {
     expect(rb.toArray()).toEqual([2, 3, 4])
     rb.push(5)
     expect(rb.toArray()).toEqual([3, 4, 5])
+    expect(rb.lastN(2)).toEqual([4, 5])
+    expect(rb.lastN(99)).toEqual([3, 4, 5])
     expect(rb.size).toBe(3)
     expect(rb.last()).toBe(5)
     rb.clear()

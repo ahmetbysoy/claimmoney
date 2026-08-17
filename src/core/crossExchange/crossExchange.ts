@@ -1,9 +1,10 @@
 import type { Clock } from '../../application/clock'
 import { systemClock } from '../../application/clock'
+import { TypedEventBus } from '../../application/eventBus'
 
 export type ExchangeId = 'binance' | 'bybit' | 'okx' | 'mexc'
 export type ExchangeStatus = 'disconnected' | 'live' | 'stale' | 'error'
-export interface ExchangeQuote { bid: number; ask: number; mid: number; ts: number; latencyMs: number; status: ExchangeStatus }
+export interface ExchangeQuote { bid: number; ask: number; mid: number; ts: number; latencyMs: number; status: ExchangeStatus; error?: string }
 export interface CrossExchangeState { binance: ExchangeQuote; bybit: ExchangeQuote; okx: ExchangeQuote; mexc: ExchangeQuote }
 export interface CrossExchangeConfig { intervalMs: number; timeoutMs: number; staleAfterMs: number; enabled: ExchangeId[] }
 export interface ArbitrageSpread {
@@ -11,14 +12,16 @@ export interface ArbitrageSpread {
   buyAsk: number; sellBid: number; valid: boolean
 }
 
-type Listener = (state: CrossExchangeState) => void
+type CrossExchangeEvents = { 'crossExchange:update': CrossExchangeState }
 const emptyQuote = (): ExchangeQuote => ({ bid: 0, ask: 0, mid: 0, ts: 0, latencyMs: 0, status: 'disconnected' })
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === 'object' && value !== null ? value as Record<string, unknown> : null
 
 export class CrossExchangePoller {
   private state: CrossExchangeState = { binance: emptyQuote(), bybit: emptyQuote(), okx: emptyQuote(), mexc: emptyQuote() }
   private config: CrossExchangeConfig
   private timer: ReturnType<typeof setInterval> | null = null
-  private listeners = new Set<Listener>()
+  private events = new TypedEventBus<CrossExchangeEvents>()
   private symbol = 'BTCUSDT'
   private controllers = new Set<AbortController>()
   private ticking = false
@@ -26,8 +29,8 @@ export class CrossExchangePoller {
   constructor(config?: Partial<CrossExchangeConfig>, private readonly clock: Clock = systemClock) {
     this.config = { intervalMs: 3000, timeoutMs: 5000, staleAfterMs: 10_000, enabled: ['bybit', 'okx', 'mexc'], ...config }
   }
-  on(event: 'crossExchange:update', fn: Listener): () => void { if (event === 'crossExchange:update') this.listeners.add(fn); return () => this.listeners.delete(fn) }
-  private emit(): void { const state = this.getState(); for (const fn of [...this.listeners]) fn(state) }
+  on(event: 'crossExchange:update', fn: (state: CrossExchangeState) => void): () => void { return this.events.on(event, fn) }
+  private emit(): void { this.events.emit('crossExchange:update', this.getState()) }
 
   start(symbol: string): void {
     const normalized = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -56,32 +59,40 @@ export class CrossExchangePoller {
     finally { clearTimeout(timeout); this.controllers.delete(controller) }
   }
 
-  private parse(exchange: ExchangeId, data: any): { bid: number; ask: number } | null {
-    if (data?.bid && data?.ask) return { bid: Number(data.bid), ask: Number(data.ask) }
-    if (exchange === 'binance' && data?.bidPrice) return { bid: Number(data.bidPrice), ask: Number(data.askPrice) }
-    if (exchange === 'bybit' && data?.result?.list?.[0]) return { bid: Number(data.result.list[0].bid1Price), ask: Number(data.result.list[0].ask1Price) }
-    if (exchange === 'okx' && data?.data?.[0]) return { bid: Number(data.data[0].bidPx), ask: Number(data.data[0].askPx) }
-    if (exchange === 'mexc' && data?.data) return { bid: Number(data.data.bid1 ?? data.data.buyOne), ask: Number(data.data.ask1 ?? data.data.sellOne) }
+  private parse(exchange: ExchangeId, value: unknown): { bid: number; ask: number } | null {
+    const data = asRecord(value)
+    if (!data) return null
+    if (data.bid && data.ask) return { bid: Number(data.bid), ask: Number(data.ask) }
+    if (exchange === 'binance' && data.bidPrice) return { bid: Number(data.bidPrice), ask: Number(data.askPrice) }
+    const nestedData = Array.isArray(data.data) ? asRecord(data.data[0]) : asRecord(data.data)
+    if (exchange === 'okx' && nestedData) return { bid: Number(nestedData.bidPx), ask: Number(nestedData.askPx) }
+    if (exchange === 'mexc' && nestedData) return { bid: Number(nestedData.bid1 ?? nestedData.buyOne), ask: Number(nestedData.ask1 ?? nestedData.sellOne) }
+    const result = asRecord(data.result), first = Array.isArray(result?.list) ? asRecord(result.list[0]) : null
+    if (exchange === 'bybit' && first) return { bid: Number(first.bid1Price), ask: Number(first.ask1Price) }
     return null
   }
 
   private async pollExchange(exchange: ExchangeId): Promise<void> {
     const started = this.clock.now()
     const urls = [`/api/cross-exchange?exchange=${exchange}&symbol=${encodeURIComponent(this.symbol)}`, this.buildUrl(exchange)]
+    let failure = 'No endpoint returned a valid two-sided quote'
     for (const url of urls) {
       try {
         const response = await this.request(url)
-        if (!response.ok) continue
+        if (!response.ok) { failure = `HTTP ${response.status}`; continue }
         const quote = this.parse(exchange, await response.json())
-        if (!quote || !Number.isFinite(quote.bid) || !Number.isFinite(quote.ask) || quote.bid <= 0 || quote.ask <= 0 || quote.bid > quote.ask) continue
+        if (!quote || !Number.isFinite(quote.bid) || !Number.isFinite(quote.ask) || quote.bid <= 0 || quote.ask <= 0 || quote.bid > quote.ask) {
+          failure = 'Malformed or crossed quote'; continue
+        }
         const ts = this.clock.now()
         this.state[exchange] = { ...quote, mid: (quote.bid + quote.ask) / 2, ts, latencyMs: Math.max(0, ts - started), status: 'live' }
         return
       } catch (error) {
+        failure = error instanceof Error ? error.message : String(error)
         if (error instanceof DOMException && error.name === 'AbortError') break
       }
     }
-    this.state[exchange].status = 'error'
+    this.state[exchange] = { ...this.state[exchange], status: 'error', error: failure }
   }
 
   private buildUrl(exchange: ExchangeId): string {

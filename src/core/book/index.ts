@@ -4,7 +4,7 @@ export type {
   OrderBook,
   MicrostructureData,
   BookSnapshot,
-  BookDiff,
-  HeatFrame,
-  OrderBookDiffConfig
+  BookDelta,
+  DeltaStatus,
+  OrderBookConfig
 } from './orderBookDiff'

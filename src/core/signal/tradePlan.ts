@@ -39,11 +39,13 @@ export interface PositionSize {
   riskPct: number
   qty: number
   notional: number
+  contractMultiplier: number
   margin: number
   leverage: number
   fee: number
   breakEven: number
-  liqPrice: number
+  /** Simplified isolated-margin screening estimate; not an exchange liquidation quote. */
+  liqPriceEstimate: number
   maxRiskUSD: number
   rr: number
 }

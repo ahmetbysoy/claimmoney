@@ -4,6 +4,7 @@ import type { VPINState } from '../core/indicators/vpin'
 import type { DataQuality, FeatureFrame, FeatureValue, NormalizedTrade, Source } from '../types'
 
 interface TimedValue { ts: number; value: number }
+interface TimedFlow { ts: number; signed: number; total: number }
 interface PricePoint { ts: number; price: number; priceStr?: string }
 export interface FeatureFrameInput {
   at: number; receiveTs?: number; symbol: string; exchange: Source; price: number; priceStr?: string
@@ -37,13 +38,30 @@ export class FeatureFrameBuilder {
   private cvdHistory: TimedValue[] = []
   private velocityHistory: TimedValue[] = []
   private returns: TimedValue[] = []
+  private tradeFlow: TimedFlow[] = []
+  private tradeFlowHead = 0
+  private flowSigned = 0
+  private flowTotal = 0
+  private lastFlowTradeTs = 0
+  private flowDirty = false
   private lastSampleAt = 0
+  private lastPruneAt = 0
   private sampleMs: number
 
   constructor(sampleMs = 100) { this.sampleMs = sampleMs }
-  addTrade(trade: NormalizedTrade): void { this.trades.push(trade) }
+  addTrade(trade: NormalizedTrade): void {
+    this.trades.push(trade)
+    const total = trade.notional ?? trade.price * trade.qty
+    const flow = { ts: trade.ts, total, signed: trade.side === 'buy' ? total : -total }
+    if (trade.ts < this.lastFlowTradeTs) this.flowDirty = true
+    this.lastFlowTradeTs = Math.max(this.lastFlowTradeTs, trade.ts)
+    this.tradeFlow.push(flow)
+    if (!this.flowDirty) { this.flowSigned += flow.signed; this.flowTotal += flow.total }
+  }
 
   private prune(at: number): void {
+    if (this.lastPruneAt && at - this.lastPruneAt < 5_000) return
+    this.lastPruneAt = at
     const priceCutoff = at - 5 * 60_000
     this.prices = this.prices.filter(item => item.ts >= priceCutoff).slice(-3000)
     this.cvdHistory = this.cvdHistory.filter(item => item.ts >= priceCutoff).slice(-3000)
@@ -68,14 +86,23 @@ export class FeatureFrameBuilder {
 
   private cvdNorm(at: number): number {
     const cutoff = at - 60_000
-    let signed = 0, total = 0
-    for (const trade of this.trades.toArray()) {
-      if (trade.ts < cutoff || trade.ts > at) continue
-      const notional = trade.notional ?? trade.price * trade.qty
-      signed += trade.side === 'buy' ? notional : -notional
-      total += notional
+    if (this.flowDirty) {
+      this.tradeFlow = this.tradeFlow.filter(item => item.ts >= cutoff && item.ts <= at).sort((a, b) => a.ts - b.ts)
+      this.tradeFlowHead = 0
+      this.flowSigned = this.tradeFlow.reduce((sum, item) => sum + item.signed, 0)
+      this.flowTotal = this.tradeFlow.reduce((sum, item) => sum + item.total, 0)
+      this.flowDirty = false
+    } else {
+      while (this.tradeFlowHead < this.tradeFlow.length && this.tradeFlow[this.tradeFlowHead].ts < cutoff) {
+        const expired = this.tradeFlow[this.tradeFlowHead++]
+        this.flowSigned -= expired.signed; this.flowTotal -= expired.total
+      }
+      if (this.tradeFlowHead > 1_000) {
+        this.tradeFlow = this.tradeFlow.slice(this.tradeFlowHead)
+        this.tradeFlowHead = 0
+      }
     }
-    return total > 0 ? signed / total : 0
+    return this.flowTotal > 0 ? this.flowSigned / this.flowTotal : 0
   }
 
   private divergence(at: number): { value: number; valid: boolean } {
@@ -130,10 +157,12 @@ export class FeatureFrameBuilder {
     }
   }
 
-  getTrades(): NormalizedTrade[] { return this.trades.toArray() }
+  getTrades(limit?: number): NormalizedTrade[] { return limit === undefined ? this.trades.toArray() : this.trades.lastN(limit) }
   getPriceHistory(): { price: number; ts: number }[] { return this.prices.map(({ price, ts }) => ({ price, ts })) }
   getCvdHistory(): TimedValue[] { return this.cvdHistory.map(item => ({ ...item })) }
   reset(): void {
-    this.trades.clear(); this.prices = []; this.cvdHistory = []; this.velocityHistory = []; this.returns = []; this.lastSampleAt = 0
+    this.trades.clear(); this.prices = []; this.cvdHistory = []; this.velocityHistory = []; this.returns = []
+    this.tradeFlow = []; this.tradeFlowHead = 0; this.flowSigned = 0; this.flowTotal = 0; this.lastFlowTradeTs = 0; this.flowDirty = false
+    this.lastSampleAt = 0; this.lastPruneAt = 0
   }
 }

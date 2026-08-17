@@ -26,25 +26,36 @@ const normalizeSymbol = (symbol: unknown) => {
   return clean.endsWith('USDT') ? clean : `${clean}USDT`
 }
 
-export function migrateSettings(input: any, fromVersion: number): Partial<SettingsState> {
-  let state = { ...(input ?? {}) }
+const asRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+
+export function migrateSettings(input: unknown, fromVersion: number): Partial<SettingsState> {
+  const state: Record<string, unknown> = { ...asRecord(input) }
   let version = fromVersion
   if (version < 4) {
-    const old = state.weights ?? { w1: 0.5, w2: 0.3, w3: 0.2 }
+    const old = asRecord(state.weights)
     state.weights = { w1: Number(old.w1 ?? 0.5), w2: Number(old.w2 ?? 0.3), w3: Number(old.w3 ?? 0.2), w4: 0.18, w5: 0.12, w6: 0.13 }
     state.threshold = state.threshold ?? 0.75; state.cooldown = state.cooldown ?? 18; version = 4
   }
   if (version < 5) { state.paperTradingEnabled = false; version = 5 }
-  if (version < 6) { state.weights = { ...DEFAULT_WEIGHTS, ...(state.weights ?? {}), w6: Number(state.weights?.w6 ?? 0.13) }; version = 6 }
+  if (version < 6) {
+    const weights = asRecord(state.weights)
+    state.weights = { ...DEFAULT_WEIGHTS, ...weights, w6: Number(weights.w6 ?? 0.13) }; version = 6
+  }
   if (version < 7) { state.symbol = normalizeSymbol(state.symbol); version = 7 }
   if (version < 8) {
     state.confirmations = 2; state.minConfirmationMs = 100; state.reducedMotion = false
     state.paperTradingEnabled = Boolean(state.paperTradingEnabled ?? false)
     state.balance = Number(state.balance ?? 1000); state.riskPct = Number(state.riskPct ?? 1); version = 8
   }
-  state.weights = normalizeStrategyWeights({ ...DEFAULT_WEIGHTS, ...(state.weights ?? {}) })
+  const weights = asRecord(state.weights)
+  state.weights = normalizeStrategyWeights({
+    w1: Number(weights.w1 ?? DEFAULT_WEIGHTS.w1), w2: Number(weights.w2 ?? DEFAULT_WEIGHTS.w2),
+    w3: Number(weights.w3 ?? DEFAULT_WEIGHTS.w3), w4: Number(weights.w4 ?? DEFAULT_WEIGHTS.w4),
+    w5: Number(weights.w5 ?? DEFAULT_WEIGHTS.w5), w6: Number(weights.w6 ?? DEFAULT_WEIGHTS.w6)
+  })
   state.symbol = normalizeSymbol(state.symbol)
-  return state
+  return state as Partial<SettingsState>
 }
 
 export const useSettingsStore = create<SettingsState>()(persist((set) => ({

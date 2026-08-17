@@ -87,6 +87,27 @@ describe('WS Manager', () => {
     mgr.disconnect()
   })
 
+  it('recreates the adapter on an explicit order-book resync request', () => {
+    const events: any[] = []
+    let created = 0
+    const factory = () => {
+      created += 1
+      let callback: (event: any) => void = () => undefined
+      return {
+        id: `adapter-${created}`,
+        connect() { callback({ type: 'status', status: 'connected', source: 'okx', ts: Date.now() }) },
+        disconnect() {}, onEvent(fn: (event: any) => void) { callback = fn },
+        getConnectionState() { return 'connected' as const }
+      }
+    }
+    const manager = new WsManager(event => events.push(event), factory)
+    manager.connect('okx', 'BTCUSDT')
+    manager.resync('sequence gap')
+    expect(created).toBe(2)
+    expect(events.some(event => event.type === 'status' && event.status === 'connecting' && event.message === 'sequence gap')).toBe(true)
+    manager.dispose()
+  })
+
   it('document.hidden pause/resume', async () => {
     const events: any[] = []
     const mgr = new WsManager((ev) => events.push(ev))

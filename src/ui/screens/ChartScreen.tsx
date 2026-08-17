@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { createChart, ColorType, CrosshairMode } from 'lightweight-charts'
+import { createChart, ColorType, CrosshairMode, type CandlestickData, type HistogramData,
+  type IChartApi, type ISeriesApi, type SeriesMarker, type UTCTimestamp } from 'lightweight-charts'
 import { useDataStore } from '../../store/dataStore'
 
 export function ChartScreen() {
@@ -8,11 +9,11 @@ export function ChartScreen() {
   const signals = useDataStore((s) => s.signals)
   const containerRef = useRef<HTMLDivElement>(null)
   const flowRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<any>(null)
-  const flowChartRef = useRef<any>(null)
-  const candleSeriesRef = useRef<any>(null)
-  const histRef = useRef<any>(null)
-  const flowSeriesRef = useRef<any>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const flowChartRef = useRef<IChartApi | null>(null)
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const histRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const flowSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const initializedRef = useRef(false)
   const flowInitializedRef = useRef(false)
 
@@ -80,10 +81,13 @@ export function ChartScreen() {
 
   useEffect(() => {
     if (!candleSeriesRef.current || candles.length === 0) return
-    const candleData = candles.map((c) => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close }))
-    const volumeDelta = candles.map((c) => {
+    const candleData: CandlestickData<UTCTimestamp>[] = candles.map(c => ({
+      time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close
+    }))
+    const volumeDelta: HistogramData<UTCTimestamp>[] = candles.map(c => {
       const delta = (c.buyVolume ?? 0) - (c.sellVolume ?? 0)
-      return { time: c.time as any, value: delta, color: delta >= 0 ? 'rgba(52,211,153,0.6)' : 'rgba(248,113,113,0.6)' }
+      return { time: c.time as UTCTimestamp, value: delta,
+        color: delta >= 0 ? 'rgba(52,211,153,0.6)' : 'rgba(248,113,113,0.6)' }
     })
     if (!initializedRef.current) {
       candleSeriesRef.current.setData(candleData)
@@ -94,17 +98,21 @@ export function ChartScreen() {
       candleSeriesRef.current.update(candleData[candleData.length - 1])
       histRef.current?.update(volumeDelta[volumeDelta.length - 1])
     }
-    const markers = signals.filter(s => s.ts).slice(0, 20).map(s => ({
-      time: (Math.floor(s.ts / 1000 / 15) * 15) as any, position: s.side === 'BUY' ? 'belowBar' : 'aboveBar',
-      color: s.side === 'BUY' ? '#34D399' : '#F87171', shape: s.side === 'BUY' ? 'arrowUp' : 'arrowDown', text: `${s.side} ${s.confidence}%`
+    const markers = signals.filter(signal => signal.ts).slice(0, 20).map((signal): SeriesMarker<UTCTimestamp> => ({
+      time: (Math.floor(signal.ts / 1000 / 15) * 15) as UTCTimestamp,
+      position: signal.side === 'BUY' ? 'belowBar' : 'aboveBar',
+      color: signal.side === 'BUY' ? '#34D399' : '#F87171',
+      shape: signal.side === 'BUY' ? 'arrowUp' : 'arrowDown', text: `${signal.side} ${signal.confidence}%`
     })).reverse()
     candleSeriesRef.current.setMarkers(markers)
   }, [candles, signals])
 
   useEffect(() => {
     if (!flowSeriesRef.current || flowCandles.length === 0) return
-    const data = flowCandles.map(f => ({ time: Math.floor(f.ts / 1000) as any, value: f.pressureClose,
-      color: f.absorption ? 'rgba(251,191,36,0.9)' : f.pressureClose >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)' }))
+    const data: HistogramData<UTCTimestamp>[] = flowCandles.map(frame => ({
+      time: Math.floor(frame.ts / 1000) as UTCTimestamp, value: frame.pressureClose,
+      color: frame.absorption ? 'rgba(251,191,36,0.9)' : frame.pressureClose >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)'
+    }))
     if (!flowInitializedRef.current) { flowSeriesRef.current.setData(data); flowChartRef.current?.timeScale().fitContent(); flowInitializedRef.current = true }
     else flowSeriesRef.current.update(data[data.length - 1])
   }, [flowCandles])

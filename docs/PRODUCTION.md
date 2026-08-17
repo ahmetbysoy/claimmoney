@@ -26,7 +26,7 @@ The regular browser suite runs desktop and mobile smoke checks against a local V
 - `@vercel/analytics` records privacy-oriented aggregate page analytics.
 - `ErrorBoundary` prevents a render failure from leaving a blank screen.
 - Global `error` and `unhandledrejection` handlers send bounded, deduplicated reports.
-- Unexpected WebSocket disconnects are reported with source and symbol context.
+- Unexpected WebSocket disconnects and rate-limited adapter parse/checksum/subscription diagnostics are reported with source and symbol context.
 - `/api/client-errors` rejects cross-site submissions, caps payloads at 16 KiB and emits sanitized structured events to Vercel logs.
 - Error messages and stacks have URL query strings removed. Session payloads, balances, recordings and localStorage values are never included.
 
@@ -55,13 +55,13 @@ Verified on 2026-08-17 with the v2.0.1 desktop/mobile Playwright suites:
 4. Open **Lab** to inspect 15s, 30s, 60s, 5m and 15m maturity coverage.
 5. Export the research dataset daily and retain backups outside browser storage.
 6. Do not interpret results before the dashboard reaches at least 200 mature observations over seven days.
-7. Review expectancy, median, drawdown, calibration gaps and purged walk-forward folds together; never select a detector using win rate alone.
+7. Review expectancy, median, drawdown, score/outcome bins, available probability-calibration gaps and purged walk-forward folds together; never select a detector using win rate alone.
 
 Storage is origin-local and bounded to 5,000 observations. Clearing browser data removes the active dataset unless a JSON backup is restored.
 
 ## OKX checksum behavior
 
-A non-zero OKX checksum is verified using the signed CRC32 top-25 bid/ask algorithm. OKX may return `checksum: 0` on `books`; zero is the exchange's current no-checksum sentinel and must not trigger a reconnect. Sequence/checksum failures with actual values force resynchronization.
+A non-zero OKX checksum is verified using the signed CRC32 top-25 bid/ask algorithm. OKX may return `checksum: 0` on `books`; zero is treated as checksum unavailable and must not trigger a reconnect. Native `snapshot` messages replace state, while native `update` messages remain canonical deltas and validate `prevSeqId`. Sequence gaps and non-zero checksum mismatches force reconnection for a fresh snapshot. OKX `trades.px` and `mark-price.markPx` are separate inputs; ticker `last` is never presented as mark price, and mark updates cannot trigger paper fills or trade-return tracking.
 
 ## Rollback
 

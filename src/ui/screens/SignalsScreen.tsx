@@ -101,14 +101,14 @@ export function SignalsScreen() {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{new Date(s.ts).toLocaleTimeString()}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              <span style={{ color: 'var(--text)' }}>${(s as any).priceStr || s.price}</span>
+              <span style={{ color: 'var(--text)' }}>${s.priceStr || s.price}</span>
               <span style={{ color: 'var(--muted)' }}>Skor {s.score.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ flex: 1, height: 6, background: 'var(--surface-2)', borderRadius: 999, overflow: 'hidden' }}>
                 <div style={{ width: `${s.confidence}%`, height: '100%', background: s.side === 'BUY' ? 'var(--green)' : 'var(--red)', borderRadius: 999 }} />
               </div>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)', fontWeight: 700 }}>{s.confidence}%</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)', fontWeight: 700 }}>{s.confidence}% {s.calibratedProbability == null ? 'güç' : 'olasılık'}</span>
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', display: 'flex', gap: 8 }}>
               <span>CVD {s.breakdown.cvd.toFixed(2)}</span>

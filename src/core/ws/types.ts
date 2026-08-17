@@ -1,17 +1,38 @@
-import type { NormalizedTrade, NormalizedDepth, NormalizedMark } from '../../types'
+import type { MarketEvent, Source } from '../../types'
 
-export type WsEvent =
-  | { type: 'trade'; data: NormalizedTrade }
-  | { type: 'depth'; data: NormalizedDepth }
-  | { type: 'mark'; data: NormalizedMark }
-  | { type: 'heartbeat' }
-  | { type: 'status'; status: 'connected' | 'connecting' | 'disconnected'; message?: string }
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
-export interface WsAdapter {
-  id: string
+export type AdapterDiagnosticCode =
+  | 'malformed-message'
+  | 'checksum-mismatch'
+  | 'sequence-gap'
+  | 'socket-error'
+  | 'subscription-error'
+
+export type AdapterEvent = MarketEvent | {
+  type: 'status'
+  status: ConnectionState
+  source: Source
+  message?: string
+  ts: number
+} | {
+  type: 'diagnostic'
+  source: Source
+  code: AdapterDiagnosticCode
+  message: string
+  ts: number
+  droppedMessages: number
+}
+
+export interface ExchangeAdapter {
+  readonly id: string
   connect(symbol: string): void
   disconnect(): void
-  onEvent(cb: (ev: WsEvent) => void): void
-  getConnectionState(): 'connected' | 'connecting' | 'disconnected'
+  onEvent(cb: (event: AdapterEvent) => void): void
+  getConnectionState(): ConnectionState
   ping?(): void
 }
+
+// Compatibility aliases for existing manager consumers.
+export type WsAdapter = ExchangeAdapter
+export type WsEvent = AdapterEvent

@@ -149,7 +149,7 @@ export function RadarGauge({ score, confidence, side, engineState }: Props) {
             boxShadow: '0 2px 8px rgba(167,139,250,0.1)'
           }}
         >
-          {engineState} • {confidence}%
+          {engineState} • skor gücü {confidence}%
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>

@@ -6,8 +6,9 @@
 
 import type { BookLevel, OrderBook } from '../book/orderBookDiff'
 import type { FlowCandle } from '../flow/flowEngine'
-import type { MicroSignal } from '../signal/tradePlan'
 import { systemClock, type Clock } from '../../application/clock'
+import { TypedEventBus } from '../../application/eventBus'
+import type { DetectorCandidate } from './detectorRegistry'
 
 // ── Types ────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ function priceToKey(p: number): string {
 export class DetectorSuite {
   private state: DetectorState
   private config: DetectorConfig
-  private listeners: Map<string, Set<Function>> = new Map()
+  private events = new TypedEventBus<{ 'signal:add': DetectorCandidate }>()
 
   // External data injected via setters
   private book: OrderBook | null = null
@@ -134,18 +135,8 @@ export class DetectorSuite {
     }
   }
 
-  on(event: string, fn: Function): () => void {
-    if (!this.listeners.has(event)) this.listeners.set(event, new Set())
-    this.listeners.get(event)!.add(fn)
-    return () => this.listeners.get(event)?.delete(fn)
-  }
-
-  private emit(event: string, data?: unknown): void {
-    const set = this.listeners.get(event)
-    if (!set) return
-    for (const fn of [...set]) {
-      try { fn(data) } catch (e) { console.error(e) }
-    }
+  on(event: 'signal:add', listener: (candidate: DetectorCandidate) => void): () => void {
+    return this.events.on(event, listener)
   }
 
   /** Update external data references (call before run()). */
@@ -391,7 +382,7 @@ export class DetectorSuite {
       if (priceDist > 0.0015) continue
 
       const ageSec = (nowTs - w.firstSeen) / 1000
-      const refreshRate = ageSec > 0 ? ((w as any).refreshCount || 0) / ageSec : 0
+      const refreshRate = ageSec > 0 ? w.refreshCount / ageSec : 0
       const isHighRefresh = refreshRate > 1.5
 
       const pull = nowTs - w.lastSeen > 700 && w.persistence < 3
@@ -402,7 +393,7 @@ export class DetectorSuite {
           confidence: 83,
           description: `Şüpheli spoof duvarı @ ${fmtPrice(w.price)}`,
           price: w.price,
-          evidence: { persistence: w.persistence, notional: w.notional, refreshRate, refreshCount: (w as any).refreshCount }
+          evidence: { persistence: w.persistence, notional: w.notional, refreshRate, refreshCount: w.refreshCount }
         })
       }
       // Yeni: yüksek refresh rate spoof - hızlı ekle-çek döngüsü
@@ -413,7 +404,7 @@ export class DetectorSuite {
           confidence: clamp(70 + refreshRate * 8, 70, 92),
           description: `Yüksek refresh spoof @ ${fmtPrice(w.price)} — ${refreshRate.toFixed(1)}/s qty değişimi`,
           price: w.price,
-          evidence: { refreshRate, refreshCount: (w as any).refreshCount, persistence: w.persistence, notional: w.notional }
+          evidence: { refreshRate, refreshCount: w.refreshCount, persistence: w.persistence, notional: w.notional }
         })
       }
     }
@@ -497,8 +488,8 @@ export class DetectorSuite {
   }
 
   /** Emit structured detector evidence for the DetectorRegistry. */
-  private emitSignal(sig: Omit<MicroSignal, 'id' | 'ts' | 'decay' | 'expiresAt'>): void {
-    this.emit('signal:add', sig)
+  private emitSignal(candidate: DetectorCandidate): void {
+    this.events.emit('signal:add', candidate)
   }
 
   /** Getters */

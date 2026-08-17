@@ -27,4 +27,22 @@ describe('SignalEngine qualification invariants', () => {
     tick(engine, .9, 1000)
     expect(tick(engine, .9, 1300).signal).toBeNull()
   })
+
+  it('reports FIRED as a transition while persisting COOLDOWN immediately', () => {
+    const engine = new SignalEngine({ threshold: .75, cooldownMs: 1000, hysteresis: .3 })
+    tick(engine, .9, 1000)
+    expect(tick(engine, .9, 1100).state).toBe('FIRED')
+    expect(engine.getState()).toBe('COOLDOWN')
+  })
+
+  it('requires sustained neutral dwell before allowing an opposite-side signal', () => {
+    const engine = new SignalEngine({ threshold: .75, cooldownMs: 100, hysteresis: .3, neutralDwellMs: 250 })
+    tick(engine, .9, 1000); tick(engine, .9, 1100)
+    expect(tick(engine, 0, 1200).state).toBe('IDLE')
+    expect(tick(engine, -.9, 1210).reason).toBe('hysteresis-block')
+    tick(engine, 0, 1300)
+    tick(engine, 0, 1550)
+    expect(tick(engine, -.9, 1560).state).toBe('ARMED')
+    expect(tick(engine, -.9, 1600).signal?.side).toBe('SELL')
+  })
 })

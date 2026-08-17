@@ -6,7 +6,8 @@ const DAY = 86_400_000
 const observation = (index: number, outcome: number, overrides: Partial<ResearchObservation> = {}): ResearchObservation => ({
   version: 1, id: `session:${index}`, sessionId: 'session', signalId: String(index), symbol: index % 2 ? 'BTCUSDT' : 'ETHUSDT',
   strategyVersion: 'claimmoney-v2', side: index % 2 ? 'BUY' : 'SELL', score: 0.8 + index % 4 * 0.25,
-  confidence: 60 + index % 20, entry: 1_000, entryTs: index * DAY / 20,
+  confidence: 60 + index % 20, calibratedProbability: 0.6 + index % 3 * 0.05,
+  entry: 1_000, entryTs: index * DAY / 20,
   regime: index % 2 ? 'trend' : 'range', regimeConfidence: 0.8, dataQuality: 'good',
   detectorTypes: index % 3 ? ['BOOK_SKEW'] : ['FLOW_DELTA_EXPANSION'], volatilityBps: 5, vpin: 0.4, spreadBps: 1,
   isTest: false, horizons: { '15s': outcome / 2, '30s': outcome * 0.8, '60s': outcome, '300s': null, '900s': null },
@@ -24,6 +25,7 @@ describe('research analytics', () => {
     expect(report.byRegime.map(item => item.key)).toEqual(expect.arrayContaining(['trend', 'range']))
     expect(report.byDetector.some(item => item.key === 'BOOK_SKEW')).toBe(true)
     expect(report.calibration.length).toBeGreaterThan(0)
+    expect(report.calibration.some(bucket => bucket.predictedSamples > 0 && bucket.calibrationGap !== null)).toBe(true)
     expect(report.walkForward.folds).toBeGreaterThan(0)
     expect(report.readiness).toBe('exploratory')
   })

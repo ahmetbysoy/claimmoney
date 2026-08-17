@@ -3,7 +3,7 @@ import { SignalEngine } from './engine'
 
 describe('Optimized Settings', () => {
   it('optimize: threshold 0.9 + cooldown 25s + hysteresis 0.4 flip azaltır', () => {
-    const engine = new SignalEngine({ threshold: 0.9, cooldownMs: 25000, hysteresis: 0.4 })
+    const engine = new SignalEngine({ threshold: 0.9, cooldownMs: 25000, hysteresis: 0.4, neutralDwellMs: 0 })
     const w = { w1: 0.5, w2: 0.3, w3: 0.2 }
 
     // 0.7 skor (eski eşik 0.6'da sinyal verirdi, yeni 0.9'da vermemeli)

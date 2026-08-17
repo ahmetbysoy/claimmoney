@@ -1,4 +1,5 @@
 import type { Signal, SignalSide } from '../../types'
+import { TypedEventBus } from '../../application/eventBus'
 
 export type HorizonKey = '15s' | '30s' | '60s' | '300s' | '900s'
 export const HORIZONS: Record<HorizonKey, number> = { '15s': 15_000, '30s': 30_000, '60s': 60_000, '300s': 300_000, '900s': 900_000 }
@@ -24,16 +25,10 @@ type TrackerEvents = { add: Tracker; update: Tracker; horizon: { id: string; hor
 
 export class SignalTracker {
   private trackers = new Map<string, Tracker>()
-  private listeners = new Map<keyof TrackerEvents, Set<(payload: never) => void>>()
+  private events = new TypedEventBus<TrackerEvents>()
   constructor(private readonly maxRetention = 1000) {}
 
-  on<K extends keyof TrackerEvents>(event: K, fn: (data: TrackerEvents[K]) => void): () => void {
-    const set = this.listeners.get(event) ?? new Set(); set.add(fn as (payload: never) => void); this.listeners.set(event, set)
-    return () => set.delete(fn as (payload: never) => void)
-  }
-  private emit<K extends keyof TrackerEvents>(event: K, data: TrackerEvents[K]): void {
-    for (const fn of [...(this.listeners.get(event) ?? [])]) fn(data as never)
-  }
+  on<K extends keyof TrackerEvents>(event: K, fn: (data: TrackerEvents[K]) => void): () => void { return this.events.on(event, fn) }
 
   addSignal(signal: Signal): Tracker {
     const existing = this.trackers.get(signal.id)
@@ -43,7 +38,7 @@ export class SignalTracker {
       entry: signal.price, entryTs: signal.ts, horizons: { '15s': null, '30s': null, '60s': null, '300s': null, '900s': null },
       mfe: 0, mae: 0, live: 0, maxSeen: 0, closed: false, lastPriceTs: signal.ts
     }
-    this.trackers.set(signal.id, tracker); this.prune(); this.emit('add', this.clone(tracker)); return this.clone(tracker)
+    this.trackers.set(signal.id, tracker); this.prune(); this.events.emit('add', this.clone(tracker)); return this.clone(tracker)
   }
 
   updatePrice(price: number, ts: number, symbol?: string): void {
@@ -57,11 +52,11 @@ export class SignalTracker {
       for (const [key, duration] of Object.entries(HORIZONS) as [HorizonKey, number][]) {
         if (tracker.horizons[key] === null && elapsed >= duration) {
           tracker.horizons[key] = pnl; tracker.maxSeen = Math.max(tracker.maxSeen, duration)
-          this.emit('horizon', { id: tracker.signalId, horizon: key, pnl, elapsed })
+          this.events.emit('horizon', { id: tracker.signalId, horizon: key, pnl, elapsed })
         }
       }
-      if (elapsed >= HORIZONS['900s']) { tracker.closed = true; this.emit('close', this.clone(tracker)) }
-      this.emit('update', this.clone(tracker))
+      if (elapsed >= HORIZONS['900s']) { tracker.closed = true; this.events.emit('close', this.clone(tracker)) }
+      this.events.emit('update', this.clone(tracker))
     }
   }
 

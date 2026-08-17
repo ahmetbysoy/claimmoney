@@ -1,5 +1,6 @@
 import type { Clock } from '../../application/clock'
 import { systemClock } from '../../application/clock'
+import { TypedEventBus } from '../../application/eventBus'
 import type { PositionSize, TradePlan } from '../signal/tradePlan'
 
 export type PositionDir = 'LONG' | 'SHORT'
@@ -7,22 +8,27 @@ export type PositionStatus = 'open' | 'closed'
 export type ExitReason = 'stop' | 'tp1' | 'tp2' | 'manual'
 export type OrderStatus = 'pending' | 'filled' | 'cancelled' | 'expired'
 
+export interface ExecutionLevel { price: number; qty: number }
+export interface ExecutionBook { bids: ExecutionLevel[]; asks: ExecutionLevel[] }
 export interface PaperOrder {
-  id: string; planId: string; dir: PositionDir; qty: number; entry: number; stop: number; tp1: number; tp2: number
-  submittedAt: number; expiresAt: number; status: OrderStatus; estimatedBookDepth: number; lastPrice: number
+  id: string; planId: string; dir: PositionDir; qty: number; contractMultiplier: number
+  entry: number; stop: number; tp1: number; tp2: number; submittedAt: number; expiresAt: number; status: OrderStatus; lastPrice: number
 }
 export interface PaperPosition {
-  id: string; planId?: string; dir: PositionDir; qty: number; initialQty?: number; entry: number; stop: number; tp1: number; tp2: number
+  id: string; planId?: string; dir: PositionDir; qty: number; initialQty?: number; contractMultiplier: number
+  entry: number; stop: number; tp1: number; tp2: number
   slippageBps: number; openedAt: number; closedAt?: number; exit?: number; reason?: ExitReason; status: PositionStatus
   tp1Filled?: boolean; realizedPnl?: number; feesPaid?: number; initialRiskUSD?: number
 }
 export interface PerformanceMetrics {
-  trades: number; wins: number; netR: number; netPnl: number; pf: number; sharpe: number; maxDD: number
-  equity: number[]; avgHoldMs: number; feesPaid: number
+  trades: number; wins: number; netR: number; netPnl: number; pf: number
+  /** Mean closed-trade R divided by its standard deviation. Not annualized Sharpe. */
+  returnQuality: number
+  maxDD: number; equity: number[]; avgHoldMs: number; feesPaid: number
 }
 export interface PaperTradingConfig {
-  cooldownMs: number; maxPositions: number; maxClosedHistory: number; maxEquityLength: number
-  feeRateBps: number; orderTtlMs: number; initialBalance: number; tp1Fraction: number
+  cooldownMs: number; maxPositions: number; maxClosedHistory: number; maxOrderHistory: number; maxEquityLength: number
+  feeRateBps: number; orderTtlMs: number; initialBalance: number; tp1Fraction: number; maxSlippageBps: number
 }
 
 type PaperEvents = {
@@ -31,7 +37,6 @@ type PaperEvents = {
   'paper:close': { position: PaperPosition; exitPrice: number; reason: ExitReason; pnl: number; r: number }
   'paper:update': { positions: PaperPosition[]; orders: PaperOrder[]; performance: PerformanceMetrics }
 }
-const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
 const std = (values: number[]) => {
   if (values.length < 2) return 0
@@ -47,99 +52,108 @@ export class PaperTradingEngine {
   private config: PaperTradingConfig
   private cooldownUntil = 0
   private sequence = 0
-  private listeners = new Map<keyof PaperEvents, Set<(payload: never) => void>>()
+  private events = new TypedEventBus<PaperEvents>()
 
   constructor(config?: Partial<PaperTradingConfig>, private readonly clock: Clock = systemClock) {
-    this.config = { cooldownMs: 30_000, maxPositions: 3, maxClosedHistory: 500, maxEquityLength: 300,
-      feeRateBps: 4, orderTtlMs: 30_000, initialBalance: 1000, tp1Fraction: 0.5, ...config }
+    this.config = { cooldownMs: 30_000, maxPositions: 3, maxClosedHistory: 500, maxOrderHistory: 1_000, maxEquityLength: 300,
+      feeRateBps: 4, orderTtlMs: 30_000, initialBalance: 1000, tp1Fraction: 0.5, maxSlippageBps: 25, ...config }
     this.performance = this.initialPerformance()
   }
   private initialPerformance(): PerformanceMetrics {
-    return { trades: 0, wins: 0, netR: 0, netPnl: 0, pf: 0, sharpe: 0, maxDD: 0,
+    return { trades: 0, wins: 0, netR: 0, netPnl: 0, pf: 0, returnQuality: 0, maxDD: 0,
       equity: [this.config?.initialBalance ?? 1000], avgHoldMs: 0, feesPaid: 0 }
   }
 
-  on<K extends keyof PaperEvents>(event: K, fn: (data: PaperEvents[K]) => void): () => void {
-    const set = this.listeners.get(event) ?? new Set()
-    set.add(fn as (payload: never) => void); this.listeners.set(event, set)
-    return () => set.delete(fn as (payload: never) => void)
-  }
-  private emit<K extends keyof PaperEvents>(event: K, data: PaperEvents[K]): void {
-    for (const fn of [...(this.listeners.get(event) ?? [])]) fn(data as never)
-  }
+  on<K extends keyof PaperEvents>(event: K, fn: (data: PaperEvents[K]) => void): () => void { return this.events.on(event, fn) }
   private publish(): void {
-    this.emit('paper:update', { positions: this.getOpenPositions(), orders: this.getOrders(), performance: this.getPerformance() })
+    this.events.emit('paper:update', { positions: this.getOpenPositions(), orders: this.getOrders(), performance: this.getPerformance() })
+  }
+  private pruneOrders(): void {
+    const pending = this.orders.filter(order => order.status === 'pending')
+    const terminal = this.orders.filter(order => order.status !== 'pending').slice(-this.config.maxOrderHistory)
+    this.orders = [...terminal, ...pending].sort((a, b) => a.submittedAt - b.submittedAt)
   }
 
-  submitPlan(planId: string, plan: TradePlan, positionSize: PositionSize | null, bookDepth: number, lastPrice: number): PaperOrder | null {
+  submitPlan(planId: string, plan: TradePlan, positionSize: PositionSize | null, lastPrice: number): PaperOrder | null {
     const now = this.clock.now()
     if (!positionSize || plan.direction === 'NEUTRAL' || now < this.cooldownUntil || !plan.entry || !plan.stop || !plan.tp1 || !plan.tp2) return null
     if (this.orders.some(order => order.planId === planId && order.status === 'pending') || this.positions.some(position => position.planId === planId)) return null
     if (this.getOpenPositions().length + this.orders.filter(order => order.status === 'pending').length >= this.config.maxPositions) return null
     const order: PaperOrder = {
       id: `order_${now}_${++this.sequence}`, planId, dir: plan.direction, qty: positionSize.qty,
-      entry: plan.entry, stop: plan.stop, tp1: plan.tp1, tp2: plan.tp2, submittedAt: now,
-      expiresAt: now + this.config.orderTtlMs, status: 'pending', estimatedBookDepth: Math.max(0, bookDepth), lastPrice
+      contractMultiplier: positionSize.contractMultiplier, entry: plan.entry, stop: plan.stop, tp1: plan.tp1, tp2: plan.tp2, submittedAt: now,
+      expiresAt: now + this.config.orderTtlMs, status: 'pending', lastPrice
     }
-    this.orders.push(order); this.emit('paper:order', { ...order }); this.publish(); return { ...order }
+    this.orders.push(order); this.pruneOrders(); this.events.emit('paper:order', { ...order }); this.publish(); return { ...order }
   }
 
-  private slippageBps(qty: number, price: number, bookDepth: number): number {
-    return clamp((qty / Math.max(bookDepth, 1e-9)) * 10_000 * 0.5, 0, 25)
+  private executionPrice(order: PaperOrder, book: ExecutionBook): { price: number; slippageBps: number } | null {
+    const levels = order.dir === 'LONG' ? book.asks : book.bids
+    let remaining = order.qty, filled = 0, notional = 0
+    for (const level of levels) {
+      if (!(level.price > 0) || !(level.qty > 0)) continue
+      const take = Math.min(remaining, level.qty)
+      notional += take * level.price; filled += take; remaining -= take
+      if (remaining <= 1e-12) break
+    }
+    // Never fabricate liquidity beyond the supplied book sample.
+    if (remaining > 1e-12 || filled <= 0) return null
+    const price = notional / filled
+    const adverseMove = order.dir === 'LONG' ? price / order.entry - 1 : order.entry / price - 1
+    const slippageBps = Math.max(0, adverseMove * 10_000)
+    if (!Number.isFinite(slippageBps) || slippageBps > this.config.maxSlippageBps) return null
+    return { price, slippageBps }
   }
 
-  private fillOrder(order: PaperOrder, price: number): PaperPosition {
-    const slipBps = this.slippageBps(order.qty, price, order.estimatedBookDepth)
-    const fill = order.dir === 'LONG' ? order.entry * (1 + slipBps / 10_000) : order.entry * (1 - slipBps / 10_000)
-    const entryFee = fill * order.qty * this.config.feeRateBps / 10_000
+  private fillOrder(order: PaperOrder, book: ExecutionBook): PaperPosition | null {
+    const execution = this.executionPrice(order, book)
+    if (!execution) return null
+    const entryFee = execution.price * order.qty * order.contractMultiplier * this.config.feeRateBps / 10_000
     const position: PaperPosition = {
       id: `pos_${this.clock.now()}_${++this.sequence}`, planId: order.planId, dir: order.dir, qty: order.qty,
-      initialQty: order.qty, entry: fill, stop: order.stop, tp1: order.tp1, tp2: order.tp2, slippageBps: slipBps,
+      initialQty: order.qty, contractMultiplier: order.contractMultiplier, entry: execution.price, stop: order.stop, tp1: order.tp1, tp2: order.tp2, slippageBps: execution.slippageBps,
       openedAt: this.clock.now(), status: 'open', tp1Filled: false, realizedPnl: 0, feesPaid: entryFee,
-      initialRiskUSD: Math.abs(fill - order.stop) * order.qty
+      initialRiskUSD: Math.abs(execution.price - order.stop) * order.qty * order.contractMultiplier
     }
     order.status = 'filled'; this.positions.push(position); this.cooldownUntil = this.clock.now() + this.config.cooldownMs
-    this.emit('paper:open', { ...position }); return position
+    this.events.emit('paper:open', { ...position }); return position
   }
 
-  /** Compatibility API: fills immediately at the supplied last price. New code should use submitPlan + update. */
-  simulateFromPlan(plan: TradePlan, positionSize: PositionSize | null, bookDepth: number, lastPrice: number): PaperPosition | null {
-    const order = this.submitPlan(`legacy_${plan.ts}`, plan, positionSize, bookDepth, lastPrice)
-    if (!order) return null
-    return this.fillOrder(this.orders.find(item => item.id === order.id)!, lastPrice)
-  }
-
-  update(price: number): void {
+  update(price: number, book?: ExecutionBook): void {
     if (!Number.isFinite(price) || price <= 0) return
     const now = this.clock.now()
     for (const order of this.orders.filter(item => item.status === 'pending')) {
       if (now >= order.expiresAt) { order.status = 'expired'; continue }
       order.lastPrice = price
       const reached = order.dir === 'LONG' ? price >= order.entry : price <= order.entry
-      if (reached) this.fillOrder(order, price)
+      if (reached && book) this.fillOrder(order, book)
     }
 
     for (const position of this.positions.filter(item => item.status === 'open')) {
       if (position.dir === 'LONG') {
-        if (price <= position.stop) this.close(position, Math.min(price, position.stop), 'stop')
-        else if (price >= position.tp2) this.close(position, Math.max(position.tp2, price), 'tp2')
-        else if (price >= position.tp1 && !position.tp1Filled) this.takePartial(position, position.tp1)
+        if (price <= position.stop) this.close(position, price, 'stop')
+        else if (price >= position.tp2) {
+          if (!position.tp1Filled) this.takePartial(position, position.tp1)
+          this.close(position, position.tp2, 'tp2')
+        } else if (price >= position.tp1 && !position.tp1Filled) this.takePartial(position, position.tp1)
       } else {
-        if (price >= position.stop) this.close(position, Math.max(price, position.stop), 'stop')
-        else if (price <= position.tp2) this.close(position, Math.min(position.tp2, price), 'tp2')
-        else if (price <= position.tp1 && !position.tp1Filled) this.takePartial(position, position.tp1)
+        if (price >= position.stop) this.close(position, price, 'stop')
+        else if (price <= position.tp2) {
+          if (!position.tp1Filled) this.takePartial(position, position.tp1)
+          this.close(position, position.tp2, 'tp2')
+        } else if (price <= position.tp1 && !position.tp1Filled) this.takePartial(position, position.tp1)
       }
     }
-    this.publish()
+    this.pruneOrders(); this.publish()
   }
 
   private signedPnl(position: PaperPosition, exitPrice: number, qty: number): number {
-    return (position.dir === 'LONG' ? exitPrice - position.entry : position.entry - exitPrice) * qty
+    return (position.dir === 'LONG' ? exitPrice - position.entry : position.entry - exitPrice) * qty * position.contractMultiplier
   }
 
   private takePartial(position: PaperPosition, exitPrice: number): void {
     const exitQty = Math.min(position.qty, (position.initialQty ?? position.qty) * this.config.tp1Fraction)
-    const fee = exitPrice * exitQty * this.config.feeRateBps / 10_000
+    const fee = exitPrice * exitQty * position.contractMultiplier * this.config.feeRateBps / 10_000
     position.realizedPnl = (position.realizedPnl ?? 0) + this.signedPnl(position, exitPrice, exitQty)
     position.feesPaid = (position.feesPaid ?? 0) + fee
     position.qty -= exitQty; position.tp1Filled = true; position.stop = position.entry
@@ -148,7 +162,7 @@ export class PaperTradingEngine {
 
   close(position: PaperPosition, exitPrice: number, reason: ExitReason): void {
     if (position.status === 'closed') return
-    const exitFee = exitPrice * position.qty * this.config.feeRateBps / 10_000
+    const exitFee = exitPrice * position.qty * position.contractMultiplier * this.config.feeRateBps / 10_000
     const finalLeg = this.signedPnl(position, exitPrice, position.qty)
     const pnl = (position.realizedPnl ?? 0) + finalLeg - (position.feesPaid ?? 0) - exitFee
     position.realizedPnl = pnl; position.feesPaid = (position.feesPaid ?? 0) + exitFee
@@ -158,7 +172,7 @@ export class PaperTradingEngine {
     if (this.closedPositions.length > this.config.maxClosedHistory) this.closedPositions.splice(this.config.maxClosedHistory)
     this.positions = this.positions.filter(item => item.id !== position.id)
     this.updatePerformance(pnl, r, position)
-    this.emit('paper:close', { position: { ...position }, exitPrice, reason, pnl, r })
+    this.events.emit('paper:close', { position: { ...position }, exitPrice, reason, pnl, r })
   }
 
   private updatePerformance(pnl: number, r: number, position: PaperPosition): void {
@@ -176,7 +190,7 @@ export class PaperTradingEngine {
     const losses = Math.abs(returns.filter(value => value < 0).reduce((a, b) => a + b, 0))
     this.performance.pf = losses > 0 ? wins / losses : wins > 0 ? Infinity : 0
     const deviation = std(returns)
-    this.performance.sharpe = returns.length > 5 && deviation > 1e-9 ? mean(returns) / deviation * Math.sqrt(returns.length) : 0
+    this.performance.returnQuality = returns.length > 5 && deviation > 1e-9 ? mean(returns) / deviation : 0
   }
 
   cancelOrder(orderId: string): boolean {

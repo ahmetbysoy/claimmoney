@@ -3,18 +3,32 @@ import { roundToStep } from '../domain/instrument'
 import type { Signal } from '../types'
 import type { WallEntry, TradePlan } from '../core/signal/tradePlan'
 
-export interface TradePlannerConfig { minRR: number; stopVolMultiple: number; targetVolMultiple: number; feeRateBps: number; slippageBps: number }
+export interface TradePlannerConfig {
+  minRR: number; stopVolMultiple: number; targetVolMultiple: number; feeRateBps: number; slippageBps: number
+  entrySpreadMultiple: number; minEntryBufferBps: number; minVolatilityBps: number
+  spreadVolMultiple: number; minTickDistance: number
+  /** Ignore detected walls farther from entry than this distance. */
+  maxWallDistanceBps: number
+}
 export interface PlanContext { spread: number; volatilityBps: number; walls: { bid: WallEntry[]; ask: WallEntry[] }; instrument: InstrumentSpec }
 
 export class TradePlanner {
-  constructor(private config: TradePlannerConfig = { minRR: 1.8, stopVolMultiple: 1.5, targetVolMultiple: 2.8, feeRateBps: 4, slippageBps: 2 }) {}
+  private config: TradePlannerConfig
+  constructor(config: Partial<TradePlannerConfig> = {}) {
+    this.config = { minRR: 1.8, stopVolMultiple: 1.5, targetVolMultiple: 2.8,
+      feeRateBps: 4, slippageBps: 2, entrySpreadMultiple: 1.5, minEntryBufferBps: 1,
+      minVolatilityBps: 2, spreadVolMultiple: 3, minTickDistance: 3, maxWallDistanceBps: 40, ...config }
+  }
 
   create(signal: Signal, context: PlanContext): TradePlan {
     const { instrument } = context
-    const price = signal.price, spreadBuffer = Math.max(context.spread * 1.5, price * 0.0001)
-    const volDistance = Math.max(price * Math.max(2, context.volatilityBps) / 10_000, context.spread * 3, instrument.tickSize * 3)
-    const strongestBid = [...context.walls.bid].filter(wall => wall.price < price).sort((a, b) => b.notional - a.notional)[0]
-    const strongestAsk = [...context.walls.ask].filter(wall => wall.price > price).sort((a, b) => b.notional - a.notional)[0]
+    const price = signal.price
+    const spreadBuffer = Math.max(context.spread * this.config.entrySpreadMultiple, price * this.config.minEntryBufferBps / 10_000)
+    const volDistance = Math.max(price * Math.max(this.config.minVolatilityBps, context.volatilityBps) / 10_000,
+      context.spread * this.config.spreadVolMultiple, instrument.tickSize * this.config.minTickDistance)
+    const withinConfiguredDistance = (wall: WallEntry) => Math.abs(wall.price / price - 1) * 10_000 <= this.config.maxWallDistanceBps
+    const strongestBid = [...context.walls.bid].filter(wall => wall.price < price && withinConfiguredDistance(wall)).sort((a, b) => b.notional - a.notional)[0]
+    const strongestAsk = [...context.walls.ask].filter(wall => wall.price > price && withinConfiguredDistance(wall)).sort((a, b) => b.notional - a.notional)[0]
     const isLong = signal.side === 'BUY'
     let entry = isLong ? price + spreadBuffer : price - spreadBuffer
     let stop = isLong ? entry - volDistance * this.config.stopVolMultiple : entry + volDistance * this.config.stopVolMultiple

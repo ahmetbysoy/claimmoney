@@ -55,6 +55,13 @@ export class WsManager {
   }
   switchSource(source: Source): void { this.connect(source, this.symbol) }
   switchSymbol(symbol: string): void { this.connect(this.source, symbol) }
+  resync(reason = 'Order-book resynchronization requested'): void {
+    if (this.disposed || this.hiddenPaused) return
+    this.generation += 1; this.clearReconnect()
+    this.adapter?.disconnect(); this.adapter = null
+    this.onEvent({ type: 'status', status: 'connecting', source: this.source, message: reason, ts: Date.now() })
+    this.createAdapterAndConnect()
+  }
 
   private clearReconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
@@ -64,14 +71,17 @@ export class WsManager {
   private startWatchdog(): void {
     if (this.watchdogTimer) clearInterval(this.watchdogTimer)
     this.watchdogTimer = setInterval(() => {
-      if (this.disposed || this.hiddenPaused || this.getState() !== 'connected') return
+      if (this.disposed || this.hiddenPaused) return
+      const state = this.getState()
+      if (state === 'disconnected') return
       const idleMs = Date.now() - this.lastMessageAt
       if (idleMs >= this.healthConfig.reconnectAfterMs) {
         this.generation += 1
         this.adapter?.disconnect(); this.adapter = null
-        this.onEvent({ type: 'status', status: 'disconnected', message: `WebSocket watchdog: ${idleMs}ms without data` })
+        this.onEvent({ type: 'status', status: 'disconnected', source: this.source,
+          message: `WebSocket watchdog: ${idleMs}ms without data`, ts: Date.now() })
         this.scheduleReconnect()
-      } else if (idleMs >= this.healthConfig.heartbeatAfterMs) {
+      } else if (state === 'connected' && idleMs >= this.healthConfig.heartbeatAfterMs) {
         this.adapter?.ping?.()
       }
     }, this.healthConfig.checkEveryMs)
@@ -96,10 +106,10 @@ export class WsManager {
     this.adapter = adapter
     adapter.onEvent(event => {
       if (generation !== this.generation || this.disposed) return
-      this.lastMessageAt = Date.now()
-      if (event.type === 'status') {
+      if (!('type' in event) || event.type === 'status' && event.status === 'connected') this.lastMessageAt = Date.now()
+      if ('type' in event && event.type === 'status') {
         if (event.status === 'connected') { this.reconnectAttempts = 0; this.reconnectScheduled = false }
-        if (event.status === 'disconnected' && this.shouldReconnect && !this.hiddenPaused) this.scheduleReconnect()
+        if ((event.status === 'disconnected' || event.status === 'error') && this.shouldReconnect && !this.hiddenPaused) this.scheduleReconnect()
       }
       this.onEvent(event)
     })
@@ -116,7 +126,10 @@ export class WsManager {
     }, delay)
   }
 
-  getState(): 'connected' | 'connecting' | 'disconnected' { return this.adapter?.getConnectionState() ?? 'disconnected' }
+  getState(): 'connected' | 'connecting' | 'disconnected' {
+    const state = this.adapter?.getConnectionState()
+    return state === 'connected' || state === 'connecting' ? state : 'disconnected'
+  }
   getHealth(staleAfterMs = 5000): WsHealth {
     return { state: this.getState(), source: this.source, symbol: this.symbol, reconnectAttempts: this.reconnectAttempts,
       lastMessageAt: this.lastMessageAt, stale: this.getState() === 'connected' && Date.now() - this.lastMessageAt > staleAfterMs }

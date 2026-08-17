@@ -38,8 +38,17 @@ export function validateMarketEvent(event: MarketEvent): ValidationResult<Market
   if (!Number.isFinite(event.eventTs) || event.eventTs <= 0) errors.push('eventTs is invalid')
   if (!Number.isFinite(event.receiveTs) || event.receiveTs <= 0) errors.push('receiveTs is invalid')
   if (event.kind === 'trade') errors.push(...validateTrade(event.trade).errors)
+  if (event.kind === 'markPrice' && !finitePositive(event.price)) errors.push('mark price must be finite and positive')
+  if (event.kind === 'liquidation') {
+    if (event.side !== 'long' && event.side !== 'short') errors.push('liquidation side is invalid')
+    if (!finitePositive(event.price)) errors.push('liquidation price must be finite and positive')
+    if (!finitePositive(event.qty)) errors.push('liquidation qty must be finite and positive')
+    if (!finitePositive(event.notional)) errors.push('liquidation notional must be finite and positive')
+  }
   if (event.kind === 'bookSnapshot' || event.kind === 'bookDelta') {
     errors.push(...validateDepth({ bids: event.bids, asks: event.asks, ts: event.eventTs }).errors)
+    const sequenceValues = event.kind === 'bookSnapshot' ? [event.seq] : [event.firstSeq, event.lastSeq]
+    if (sequenceValues.some(value => !Number.isFinite(value) || value < 0)) errors.push('book sequence is invalid')
   }
   if ((event.kind === 'bookSnapshot' || event.kind === 'bookDelta') && event.bids.length && event.asks.length) {
     const bestBid = Math.max(...event.bids.map(([p]) => p))

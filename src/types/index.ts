@@ -50,7 +50,7 @@ export interface NormalizedMark {
 export type MarketEvent =
   | ({ kind: 'trade'; trade: NormalizedTrade } & EventMeta)
   | ({ kind: 'bookSnapshot'; bids: [number, number][]; asks: [number, number][]; seq: number; checksum?: number } & EventMeta)
-  | ({ kind: 'bookDelta'; bids: [number, number][]; asks: [number, number][]; firstSeq: number; lastSeq: number; checksum?: number } & EventMeta)
+  | ({ kind: 'bookDelta'; bids: [number, number][]; asks: [number, number][]; firstSeq: number; lastSeq: number; previousSeq?: number; checksum?: number } & EventMeta)
   | ({ kind: 'markPrice'; price: number; priceStr?: string } & EventMeta)
   | ({ kind: 'liquidation'; side: 'long' | 'short'; price: number; qty: number; notional: number } & EventMeta)
 

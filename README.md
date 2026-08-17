@@ -6,13 +6,13 @@ Deterministic, event-time based crypto futures microstructure research and paper
 
 > **Research/education only. It is not investment advice and does not place real orders.**
 
-## What changed in v2.1
+## Current platform (v2.1 + unreleased hardening)
 
-ClaimMoney is a clean repository derived from the Tierflow prototype and implements the full hardening and research-measurement roadmap:
+ClaimMoney is a clean repository derived from the Tierflow prototype and implements the hardening and research-measurement roadmap:
 
 - normalized `MarketEvent` contracts with snapshot/delta and sequence metadata;
 - injectable clock, JSONL recorder/replay and deterministic feature frames;
-- synchronized local order book with snapshot replacement, delta gap detection, OKX CRC32 verification and immutable snapshots;
+- truthful stream semantics: Binance top-N snapshots, OKX snapshot/delta continuity, distinct OKX trade/mark prices, CRC32 verification and reconnect-on-gap;
 - WebSocket heartbeat/idle watchdog with bounded jittered reconnect;
 - 100 ms `FeatureFrame` cadence instead of trade/mark double-counting;
 - CVD, OBI, velocity, microprice, VPIN, volatility, divergence and detector validity/warmup;
@@ -20,8 +20,8 @@ ClaimMoney is a clean repository derived from the Tierflow prototype and impleme
 - same-direction/dwell confirmations; filters run **before** FSM state changes;
 - nine microstructure detectors behind a deduplicating, decaying detector registry;
 - approved-signal-only planner, tick rounding, net RR and conservative position sizing;
-- pending paper orders, slippage, fees, partial TP1, breakeven stop and correct dollar-R accounting;
-- unbiased horizon statistics, calibration bins, session import/export and purged walk-forward utilities;
+- pending paper orders, side-specific depth walking, bounded slippage, liquidity rejection, fees, partial TP1, breakeven stop and dollar-R accounting;
+- horizon statistics, score/outcome bins, probability-only calibration gaps, session import/export and purged walk-forward utilities;
 - browser recording export plus isolated deterministic JSONL replay reports;
 - minute checkpoints into a bounded, deduplicating local research dataset;
 - regime, detector, symbol, calibration and purged walk-forward research dashboard;
@@ -50,7 +50,7 @@ Exchange adapters
       └─ Zustand read model / UI
 ```
 
-The core runtime is `src/application/marketRuntime.ts`. React owns its lifecycle; importing a store no longer starts timers, WebSockets or polling.
+The orchestration boundary is `src/application/marketRuntime.ts`; `src/application/runtimeCollaborators.ts` is its explicit default composition root. React owns the lifecycle, and importing a store does not start timers, WebSockets or polling.
 
 ## Run
 
@@ -69,7 +69,7 @@ npm run test:e2e:production
 
 Open the **Lab** tab while live market data is connected. ClaimMoney checkpoints the active session and upserts mature signal outcomes every minute, plus on visibility changes and page exit. The bounded local dataset retains up to 5,000 observations and can be backed up/restored as JSON.
 
-The dashboard excludes user-injected test signals, supports 15s–15m horizons, and reports regime/detector/symbol groups, calibration gaps and purged walk-forward folds. `review-ready` requires at least 200 mature observations spanning seven days; it is a data-sufficiency gate, not evidence of profitability.
+The dashboard excludes user-injected test signals, supports 15s–15m horizons, and reports regime/detector/symbol groups, score/outcome bins and purged walk-forward folds. Calibration gaps appear only where an actual calibrated probability was available. `review-ready` requires at least 200 mature observations spanning seven days; it is a data-sufficiency gate, not evidence of profitability.
 
 ## Main modules
 
@@ -92,7 +92,8 @@ The dashboard excludes user-injected test signals, supports 15s–15m horizons, 
 - No real-order endpoint or execution adapter.
 - Paper mode defaults to off.
 - Data marked stale, unsynchronized or warming cannot advance the signal FSM.
-- “Confidence” remains an uncalibrated score display until enough version-matched outcomes exist; then the calibrator can provide a shrunken empirical probability.
+- Before calibration, the UI labels the display as **score strength**, not confidence/probability. A shrunken empirical probability is shown only after enough version-matched outcomes exist.
+- `liqPriceEstimate` is a simplified risk-screening estimate, not an exchange-accurate liquidation price; paper `returnQuality` is not annualized Sharpe.
 - Strategy feedback is stored/versioned and is not used to mutate live weights inside the same session.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/PHASES.md`](docs/PHASES.md) and the [`docs/PRODUCTION.md`](docs/PRODUCTION.md) runbook.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/REVIEW_TRIAGE.md`](docs/REVIEW_TRIAGE.md), [`docs/PHASES.md`](docs/PHASES.md) and the [`docs/PRODUCTION.md`](docs/PRODUCTION.md) runbook.
