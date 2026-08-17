@@ -1,33 +1,38 @@
 {
-  "name": "tierflow",
-  "version": "1.1.0",
+  "name": "claimmoney",
+  "version": "2.0.0",
   "private": true,
-  "description": "Signal Radar - Neon Kokpit | CVD + OBI + Velocity + Microprice + VPIN | 5-weight micro-structure + forward PnL tracker",
+  "description": "ClaimMoney — deterministic microstructure research, signal, risk and paper-execution platform",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "build": "vite build",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit --pretty false -p tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "check": "npm run typecheck && npm test && npm run build:only",
+    "build:only": "vite build"
   },
   "dependencies": {
-    "zustand": "^4.5.5",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "lightweight-charts": "^4.2.1",
-    "framer-motion": "^11.11.17",
     "canvas-confetti": "^1.9.4",
-    "lucide-react": "^0.468.0"
+    "framer-motion": "^12.23.12",
+    "lightweight-charts": "^4.2.3",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
-    "@types/react": "^19.0.1",
-    "@types/react-dom": "^19.0.1",
     "@types/canvas-confetti": "^1.6.4",
-    "@vitejs/plugin-react": "^4.3.3",
-    "typescript": "^5.6.3",
-    "vite": "^6.0.3",
-    "vitest": "^2.1.8",
-    "jsdom": "^25.0.1"
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^6.0.5",
+    "jsdom": "^26.1.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
   }
 }

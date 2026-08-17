@@ -1,60 +1,41 @@
-/**
- * ScoreAggregator — tek merkezi skor (Faz 2)
- * İndikatör z-skorları + detector confluence'ı tek potada birleştirir.
- * Önceki kopukluk: DetectorSuite sadece TradePlan'e gidiyor, computeScore'a w6=0 kalıyordu.
- * Şimdi: detectorScore normalize edilip w6 ile skora giriyor.
- */
-
-import type { MicroSignal } from './tradePlan'
+import { normalizeWeights, type Weights } from './engine'
 
 export interface AggregatorInput {
-  cvdZ: number
-  obi: number
-  velocityZ: number
-  microDev: number
-  vpinAdj: number
-  detectorBull: number
-  detectorBear: number
-  divergenceAdj?: number
+  cvdZ: number; obi: number; velocityZ: number; microDev: number
+  vpinAdj?: number; vpin?: number; vpinValid?: boolean
+  detectorBull: number; detectorBear: number; divergenceAdj?: number
+  validity?: Partial<Record<'cvd' | 'obi' | 'velocity' | 'micro' | 'detector', boolean>>
 }
-
-export interface AggregatorWeights {
-  w1: number; w2: number; w3: number; w4: number; w5: number; w6: number
-}
+export type AggregatorWeights = Required<Weights>
 
 export function computeDetectorScore(bull: number, bear: number): number {
-  const norm = (bull - bear) / 100 // -1..+1, 100 = 50+50
-  return Math.max(-1, Math.min(1, norm))
+  if (!Number.isFinite(bull) || !Number.isFinite(bear)) return 0
+  const total = Math.abs(bull) + Math.abs(bear)
+  if (total === 0) return 0
+  return Math.max(-1, Math.min(1, (bull - bear) / Math.max(100, total)))
 }
 
-export function aggregateScore(
-  input: AggregatorInput,
-  weights: AggregatorWeights,
-  divergenceAdj = 0
-): { score: number; detectorScore: number; breakdown: Record<string, number> } {
-  const wSum = weights.w1 + weights.w2 + weights.w3 + weights.w4 + weights.w5 + weights.w6
-  const w = {
-    w1: weights.w1 / (wSum || 1),
-    w2: weights.w2 / (wSum || 1),
-    w3: weights.w3 / (wSum || 1),
-    w4: weights.w4 / (wSum || 1),
-    w5: weights.w5 / (wSum || 1),
-    w6: weights.w6 / (wSum || 1),
-  }
+export function aggregateScore(input: AggregatorInput, weights: AggregatorWeights, divergenceAdj = input.divergenceAdj ?? 0) {
+  const normalized = normalizeWeights(weights)
   const detectorScore = computeDetectorScore(input.detectorBull, input.detectorBear)
-  const score = w.w1 * input.cvdZ + w.w2 * input.obi + w.w3 * input.velocityZ + w.w4 * input.microDev + w.w5 * input.vpinAdj + w.w6 * detectorScore + (divergenceAdj || 0)
-  const clamped = Math.max(-3, Math.min(3, score))
+  const validity = { cvd: true, obi: true, velocity: true, micro: true, detector: true, ...input.validity }
+  const components = [
+    { id: 'cvd', valid: validity.cvd, value: input.cvdZ, weight: normalized.w1 },
+    { id: 'obi', valid: validity.obi, value: input.obi, weight: normalized.w2 },
+    { id: 'velocity', valid: validity.velocity, value: input.velocityZ, weight: normalized.w3 },
+    { id: 'micro', valid: validity.micro, value: input.microDev, weight: normalized.w4 },
+    { id: 'detector', valid: validity.detector, value: detectorScore, weight: normalized.w6 }
+  ]
+  const validWeight = components.filter(component => component.valid && Number.isFinite(component.value)).reduce((sum, component) => sum + component.weight, 0)
+  const directional = components.reduce((sum, component) => component.valid && Number.isFinite(component.value) ? sum + component.value * component.weight / (validWeight || 1) : sum, 0)
+
+  // VPIN is toxicity, not direction. It scales conviction instead of selecting a side.
+  const vpin = input.vpin ?? Math.max(0, Math.min(1, (input.vpinAdj ?? 0) + 0.3))
+  const toxicityMultiplier = input.vpinValid === false ? 0.85 : Math.max(0.55, 1 - Math.max(0, vpin - 0.3) * normalized.w5 * 2)
+  const score = Math.max(-3, Math.min(3, directional * toxicityMultiplier + divergenceAdj))
   return {
-    score: clamped,
-    detectorScore,
-    breakdown: {
-      cvdZ: input.cvdZ,
-      obi: input.obi,
-      velocityZ: input.velocityZ,
-      microDev: input.microDev,
-      vpinAdj: input.vpinAdj,
-      detectorScore,
-      divergenceAdj: divergenceAdj || 0
-    }
+    score, detectorScore, toxicityMultiplier,
+    breakdown: { cvdZ: input.cvdZ, obi: input.obi, velocityZ: input.velocityZ, microDev: input.microDev,
+      vpin, detectorScore, divergenceAdj, validWeight }
   }
 }

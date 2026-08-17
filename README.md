@@ -1,112 +1,83 @@
-# Signal Radar — Neon Kokpit 📡
+# ClaimMoney
 
-> Klasik indikatörler (RSI/MACD) yerine **ham WebSocket** verisinden türetilen mikro yapı metrikleriyle çalışan, neon kokpit temalı trading radarı. **Eğlence ve eğitim amaçlıdır, yatırım tavsiyesi değildir.**
+Deterministic, event-time based crypto futures microstructure research and paper-execution platform.
 
-**Canlı:** https://tierflow.vercel.app  
-**Repo:** `ahmetbysoy/tierflow` (private) • **Vercel:** `ahmetbysoy1s-projects/tierflow` (auto-deploy `main` → prod)
+> **Research/education only. It is not investment advice and does not place real orders.**
 
----
+## What changed in v2
 
-## 🎯 Ne yapar?
+ClaimMoney is a clean repository derived from the Tierflow prototype and implements the full hardening roadmap:
 
-- **CVD** (Cumulative Volume Delta), **OBI** (Order Book Imbalance), **Velocity** (fiyat hızı), **Microprice** (microprice sapması), **VPIN** (Volume-Synchronized PIN) metriklerini **OKX/Binance Futures WSS**'ten canlı hesaplar
-- Kompozit skor `S = w1*CVD_z + w2*OBI + w3*VEL_z + w4*MICRO + w5*VPIN + divergence` üretir
-- Durum makinesi `IDLE → ARMED (2 tick ≥ threshold) → FIRED → COOLDOWN (18s) → IDLE` + **hysteresis 0.35** + **flat/OBI/confluence filtreleri**
-- Her sinyalin **+15s / +30s / +60s / +5m / +15m** forward return'ünü, **MFE/MAE** ve **win rate**'ini canlı takip eder
+- normalized `MarketEvent` contracts with snapshot/delta and sequence metadata;
+- injectable clock, JSONL recorder/replay and deterministic feature frames;
+- synchronized local order book with snapshot replacement, delta gap detection, OKX CRC32 verification and immutable snapshots;
+- WebSocket heartbeat/idle watchdog with bounded jittered reconnect;
+- 100 ms `FeatureFrame` cadence instead of trade/mark double-counting;
+- CVD, OBI, velocity, microprice, VPIN, volatility, divergence and detector validity/warmup;
+- typed data-quality, filter, score and FSM pipeline;
+- same-direction/dwell confirmations; filters run **before** FSM state changes;
+- nine microstructure detectors behind a deduplicating, decaying detector registry;
+- approved-signal-only planner, tick rounding, net RR and conservative position sizing;
+- pending paper orders, slippage, fees, partial TP1, breakeven stop and correct dollar-R accounting;
+- unbiased horizon statistics, calibration bins, session import/export and purged walk-forward utilities;
+- browser recording export plus isolated deterministic JSONL replay reports;
+- Radar, Chart, Signals, Microstructure diagnostics, Paper and Settings screens;
+- source-specific instrument catalogs, independent sound/haptics and reduced-motion support;
+- TypeScript strict check, 0-audit dependency tree, expanded regression suite and GitHub Actions CI.
 
----
+## Architecture
 
-## 🛠️ Teknoloji
-
-- **Vite 6 + React 19 + TypeScript 5.6**
-- **Zustand** (data 10Hz throttle, settings persist, ui)
-- **lightweight-charts 4** (15s mum), **framer-motion**, **canvas-confetti**, **lucide-react**
-- **Vitest + jsdom** (25 test)
-- **Pure CSS Tokens** (`--bg #070B14` vb), 480px telefon kanvası
-
----
-
-## 📁 Klasör Yapısı
-
-```
-src/
-├── app/App.tsx, main.tsx
-├── core/
-│   ├── indicators/cvd.ts, imbalance.ts, velocity.ts, vpin.ts
-│   ├── signal/engine.ts, filters.ts, tradePlan.ts
-│   ├── book/orderBookDiff.ts
-│   ├── flow/flowEngine.ts
-│   ├── detectors/detectorSuite.ts
-│   ├── crossExchange/crossExchange.ts
-│   ├── paper/paperTrading.ts
-│   ├── performance/signalTracker.ts
-│   ├── buffers/ringBuffer.ts
-│   ├── audio/sound.ts
-│   └── ws/adapters/okx.ts, binance.ts, wsManager.ts
-├── store/dataStore.ts, settingsStore.ts, uiStore.ts
-├── ui/components/*, screens/Radar/Chart/Signals/Settings
-├── styles/tokens.css, global.css
-└── types/index.ts
-docs/05-phase1-todo-prompt.md  # Faz 1 master prompt
+```text
+Exchange adapters
+  → MarketEvent validation / sequencing
+  → Trade window + OrderBook + canonical price
+  → FeatureFrameBuilder (fixed 10 Hz)
+  → DataQualityGate + DetectorRegistry + RegimeClassifier
+  → ScoreAggregator
+  → hard/soft filters
+  → same-direction SignalEngine FSM
+  → Approved Signal Bus
+      ├─ Forward tracker / probability calibration
+      ├─ Trade planner / position sizer
+      ├─ Paper broker
+      └─ Zustand read model / UI
 ```
 
----
+The core runtime is `src/application/marketRuntime.ts`. React owns its lifecycle; importing a store no longer starts timers, WebSockets or polling.
 
-## 🎨 Tasarım Sistemi
-
-`src/styles/tokens.css`:
-`--bg #070B14, --surface #0F1626, --surface-2 #16203A, --border #1E2A44, --green #34D399, --red #F87171, --amber #FBBF24, --cyan #22D3EE, --violet #A78BFA`
-
----
-
-## ⚙️ Varsayılan Ayarlar (v4)
-
-- **Ağırlıklar:** CVD 35% / OBI 20% / VEL 15% / MICRO 18% / VPIN 12% (normalize)
-- **Threshold:** 0.75, **Cooldown:** 18s, **Hysteresis:** 0.35
-- **Filtreler:** flat range <0.02% (60s), |OBI|≥0.06, 2/3 confluence |z|≥0.30, VPIN Toxic ise |score|<1.0 blok
-- **WS:** OKX default (TR), Binance fallback, exponential backoff max 30s, `document.hidden` pause
-
----
-
-## 🚀 Çalıştır
+## Run
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # vite build → dist
-npm test         # vitest 25/25
-npm run preview  # prod preview
+npm run dev
+npm run typecheck
+npm test
+npm run build
+npm audit
 ```
 
-**Vercel:** GitHub `main` push → auto-deploy `dist`. Env yok, tüm WS client'tan.
+## Main modules
 
----
+- `src/domain/`: market contracts, validation and instrument precision
+- `src/application/`: runtime, clock, typed event bus, data quality and telemetry
+- `src/features/`: deterministic feature and candle builders
+- `src/core/book/`: snapshot/delta local book
+- `src/core/indicators/`: CVD/OBI/velocity/VPIN
+- `src/core/detectors/`: detector suite and contribution registry
+- `src/core/signal/`: score, filters, regime and FSM decision pipeline
+- `src/risk/`: approved-signal planner and position sizing
+- `src/core/paper/`: pending-order and paper execution engine
+- `src/core/performance/`, `src/performance/`: horizon metrics, calibration, persistence and walk-forward
+- `src/testing/replay/`: JSONL deterministic recorder/replay
+- `src/ui/`: lazy-loaded product and diagnostics screens
 
-## 📊 Ekranlar
+## Safety model
 
-- **Radar:** Conic-gradient tarama (3s/tur), skor ibresi, 5 dikey bar (CVD/OBI/VEL/MIC/VPIN), konfeti + pulse
-- **Chart:** 15s mum + CVD histogram + ▲/▼ marker
-- **Signals:** Son 200 sinyal, her kartta `15s/30s/60s/5m` forward, `MFE/MAE`, üstte `win60s` stats
-- **Settings:** Borsa/sembol, 5 ağırlık slider, threshold/cooldown, ses/haptik, test sinyali
+- No exchange API keys.
+- No real-order endpoint or execution adapter.
+- Paper mode defaults to off.
+- Data marked stale, unsynchronized or warming cannot advance the signal FSM.
+- “Confidence” remains an uncalibrated score display until enough version-matched outcomes exist; then the calibrator can provide a shrunken empirical probability.
+- Strategy feedback is stored/versioned and is not used to mutate live weights inside the same session.
 
----
-
-## 🧪 Testler
-
-`npm test` 25/25:
-- CVD birikim/divergence, OBI ±1, Velocity z, VPIN, RingBuffer 1000, WS reconnect, Engine hysteresis/cooldown, Filters flat/OBI/confluence, Tracker forward PnL
-
----
-
-## ⚠️ Sorumluluk Reddi
-
-Eğlence ve eğitim amaçlıdır, yatırım tavsiyesi değildir. Mikro yapı sinyalleri gürültülüdür, her sinyal kâr ettirmez. Paper modda test edin.
-
----
-
-## 📜 Geçmiş
-
-- `bd8f4e6` Whale Vampire (G1/G2 divergence)
-- `aba2c8e` Signal Radar Faz 1 (CVD/OBI/Velocity kokpit)
-- `5aa0f08` 7 mikro yapı modülü (BOZOK_PRO)
-- `d3c5c2a` optimize 0.9/25s, `e699654` flat/OBI filtre, `05ff73d` 0.75/0.02, `30c59c3` microprice+VPIN 5-weight, `5f0c36f` forward tracker
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/PHASES.md`](docs/PHASES.md).

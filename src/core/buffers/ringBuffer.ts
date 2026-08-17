@@ -9,6 +9,7 @@ export class RingBuffer<T> {
   private count = 0
 
   constructor(private capacity: number) {
+    if (!Number.isInteger(capacity) || capacity <= 0) throw new RangeError('RingBuffer capacity must be a positive integer')
     this.buf = new Array(capacity)
   }
 

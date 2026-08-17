@@ -1,155 +1,89 @@
-/**
- * VPIN (Volume-Synchronized Probability of Informed Trading) — extracted from BOZOK_PRO
- * Measures toxicity of order flow using volume bucketing.
- * High VPIN (>0.7) indicates toxic/informed flow.
- */
-
+import type { Clock } from '../../application/clock'
+import { systemClock } from '../../application/clock'
 import type { Side } from '../../types'
 
-// ── Types ────────────────────────────────────────────────
-
-export type VpinLabel = 'Low' | 'Medium' | 'Toxic'
-
+export type VpinLabel = 'Warming' | 'Low' | 'Medium' | 'Toxic'
 export interface VPINState {
-  value: number
-  label: VpinLabel
-  buckets: number[]
-  currentBuy: number
-  currentSell: number
-  currentNotional: number
-  bucketSize: number
+  value: number; label: VpinLabel; buckets: number[]; currentBuy: number; currentSell: number
+  currentNotional: number; bucketSize: number; valid: boolean; warmup: number; lastUpdateTs: number
 }
-
 export interface VPINConfig {
-  maxBuckets: number
-  tradeLookback: number
-  minBucketNotional: number
-  bucketTimeoutMs: number
+  maxBuckets: number; tradeLookback: number; minBucketNotional: number; bucketTimeoutMs: number
+  minWarmupBuckets: number; rollingBucketFraction: number
 }
 
-// ── Utilities ─────────────────────────────────────────────
-
-function mean(arr: number[]): number {
-  return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
-}
-
-// ── VPIN ──────────────────────────────────────────────────
+type VpinListener = (state: VPINState) => void
+const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
 
 export class VPIN {
   private state: VPINState
   private config: VPINConfig
-  private lastBucketTs: number
-  private listeners: Map<string, Set<Function>> = new Map()
+  private lastBucketTs = 0
+  private listeners = new Set<VpinListener>()
 
-  constructor(config?: Partial<VPINConfig>) {
+  constructor(config?: Partial<VPINConfig>, private readonly clock: Clock = systemClock) {
     this.config = {
-      maxBuckets: 50,
-      tradeLookback: 200,
-      minBucketNotional: 100_000,
-      bucketTimeoutMs: 60_000,
-      ...config
+      maxBuckets: 50, tradeLookback: 200, minBucketNotional: 100_000, bucketTimeoutMs: 60_000,
+      minWarmupBuckets: 10, rollingBucketFraction: 0.02, ...config
     }
-    this.lastBucketTs = Date.now()
-    this.state = {
-      value: 0,
-      label: 'Low',
-      buckets: [],
-      currentBuy: 0,
-      currentSell: 0,
-      currentNotional: 0,
-      bucketSize: this.config.minBucketNotional
-    }
+    this.state = this.initialState()
   }
 
-  on(event: string, fn: Function): () => void {
-    if (!this.listeners.has(event)) this.listeners.set(event, new Set())
-    this.listeners.get(event)!.add(fn)
-    return () => this.listeners.get(event)?.delete(fn)
+  private initialState(): VPINState {
+    return { value: 0, label: 'Warming', buckets: [], currentBuy: 0, currentSell: 0, currentNotional: 0,
+      bucketSize: this.config.minBucketNotional, valid: false, warmup: 0, lastUpdateTs: 0 }
   }
 
-  private emit(event: string, data?: unknown): void {
-    const set = this.listeners.get(event)
-    if (!set) return
-    for (const fn of [...set]) {
-      try { fn(data) } catch (e) { console.error(e) }
-    }
+  on(event: 'vpin:update', fn: VpinListener): () => void {
+    if (event !== 'vpin:update') return () => undefined
+    this.listeners.add(fn); return () => this.listeners.delete(fn)
+  }
+  private emit(): void { const snapshot = this.getState(); for (const fn of [...this.listeners]) fn(snapshot) }
+
+  private closeBucket(ts: number): void {
+    const total = this.state.currentBuy + this.state.currentSell
+    if (total > 0) this.state.buckets.push(Math.abs(this.state.currentBuy - this.state.currentSell) / total)
+    if (this.state.buckets.length > this.config.maxBuckets) this.state.buckets.splice(0, this.state.buckets.length - this.config.maxBuckets)
+    this.state.currentBuy = 0; this.state.currentSell = 0; this.state.currentNotional = 0; this.lastBucketTs = ts
   }
 
-  /** Feed a trade into the VPIN calculator. */
+  private recompute(ts: number): void {
+    this.state.value = mean(this.state.buckets)
+    this.state.warmup = Math.min(1, this.state.buckets.length / this.config.minWarmupBuckets)
+    this.state.valid = this.state.buckets.length >= this.config.minWarmupBuckets
+    this.state.label = !this.state.valid ? 'Warming' : this.state.value < 0.3 ? 'Low' : this.state.value < 0.7 ? 'Medium' : 'Toxic'
+    this.state.lastUpdateTs = ts
+  }
+
   update(
-    trade: { price: number; qty: number; side: Side; notional: number },
-    allTrades: { notional: number }[]
+    trade: { price: number; qty: number; side: Side; notional: number; ts?: number },
+    allTrades: { notional: number }[] = []
   ): VPINState {
-    // Dynamic bucket sizing based on rolling volume
-    const rollingVol = allTrades
-      .slice(-this.config.tradeLookback)
-      .reduce((a, b) => a + b.notional, 0)
-    const targetBucket = Math.max(this.config.minBucketNotional, rollingVol * 0.001)
-    this.state.bucketSize = targetBucket
+    const ts = trade.ts ?? this.clock.now()
+    if (!Number.isFinite(trade.notional) || trade.notional <= 0) return this.getState()
+    const rollingVolume = allTrades.slice(-this.config.tradeLookback).reduce((sum, item) => sum + Math.max(0, item.notional), 0) + trade.notional
+    this.state.bucketSize = Math.max(this.config.minBucketNotional, rollingVolume * this.config.rollingBucketFraction)
+    if (!this.lastBucketTs) this.lastBucketTs = ts
+    if (this.state.currentNotional > 0 && ts - this.lastBucketTs >= this.config.bucketTimeoutMs) this.closeBucket(ts)
 
-    // Bucket completion check + time-based fallback for low-volume coins
-    const now = Date.now()
-    const shouldForceClose = this.state.currentNotional > 0 && (now - this.lastBucketTs) >= this.config.bucketTimeoutMs
-    if (this.state.currentNotional >= targetBucket || shouldForceClose) {
-      const total = this.state.currentBuy + this.state.currentSell
-      if (total > 0) {
-        this.state.buckets.push(
-          Math.abs(this.state.currentBuy - this.state.currentSell) / total
-        )
-      }
-      if (this.state.buckets.length > this.config.maxBuckets) {
-        this.state.buckets.shift()
-      }
-      this.state.currentBuy = 0
-      this.state.currentSell = 0
-      this.state.currentNotional = 0
-      this.lastBucketTs = now
+    let remaining = trade.notional
+    while (remaining > 0) {
+      const room = Math.max(0, this.state.bucketSize - this.state.currentNotional)
+      if (room === 0) { this.closeBucket(ts); continue }
+      const amount = Math.min(room, remaining)
+      if (trade.side === 'buy') this.state.currentBuy += amount
+      else this.state.currentSell += amount
+      this.state.currentNotional += amount
+      remaining -= amount
+      if (this.state.currentNotional >= this.state.bucketSize - 1e-9) this.closeBucket(ts)
     }
-
-    // Accumulate
-    if (trade.side === 'buy') {
-      this.state.currentBuy += trade.notional
-    } else {
-      this.state.currentSell += trade.notional
-    }
-    this.state.currentNotional += trade.notional
-
-    // Compute VPIN as mean of bucket imbalances
-    if (this.state.buckets.length) {
-      this.state.value = mean(this.state.buckets)
-      this.state.label =
-        this.state.value < 0.3 ? 'Low' :
-        this.state.value < 0.7 ? 'Medium' : 'Toxic'
-    }
-
-    this.emit('vpin:update', this.state)
-    return this.state
+    this.recompute(ts)
+    this.emit()
+    return this.getState()
   }
 
-  /** Getters */
-  getState(): VPINState {
-    return this.state
-  }
-
-  getValue(): number {
-    return this.state.value
-  }
-
-  getLabel(): VpinLabel {
-    return this.state.label
-  }
-
-  /** Reset state (e.g. on symbol change). */
-  reset(): void {
-    this.lastBucketTs = Date.now()
-    this.state = {
-      value: 0,
-      label: 'Low',
-      buckets: [],
-      currentBuy: 0,
-      currentSell: 0,
-      currentNotional: 0,
-      bucketSize: this.config.minBucketNotional
-    }
-  }
+  getState(): VPINState { return { ...this.state, buckets: [...this.state.buckets] } }
+  getValue(): number { return this.state.value }
+  getLabel(): VpinLabel { return this.state.label }
+  reset(): void { this.lastBucketTs = 0; this.state = this.initialState() }
 }

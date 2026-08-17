@@ -4,6 +4,7 @@ export type WsEvent =
   | { type: 'trade'; data: NormalizedTrade }
   | { type: 'depth'; data: NormalizedDepth }
   | { type: 'mark'; data: NormalizedMark }
+  | { type: 'heartbeat' }
   | { type: 'status'; status: 'connected' | 'connecting' | 'disconnected'; message?: string }
 
 export interface WsAdapter {
@@ -12,4 +13,5 @@ export interface WsAdapter {
   disconnect(): void
   onEvent(cb: (ev: WsEvent) => void): void
   getConnectionState(): 'connected' | 'connecting' | 'disconnected'
+  ping?(): void
 }

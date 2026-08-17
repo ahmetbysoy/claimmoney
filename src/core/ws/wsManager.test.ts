@@ -63,6 +63,30 @@ describe('WS Manager', () => {
     mgr2.disconnect()
   })
 
+  it('pings an idle socket and reconnects it when the watchdog expires', async () => {
+    const events: any[] = []
+    const ping = vi.fn()
+    const adapter = {
+      id: 'silent',
+      state: 'disconnected' as 'connected' | 'connecting' | 'disconnected',
+      cb: (_event: any) => {},
+      onEvent(cb: (event: any) => void) { this.cb = cb },
+      connect() { this.state = 'connected'; this.cb({ type: 'status', status: 'connected' }) },
+      disconnect() { this.state = 'disconnected' },
+      getConnectionState() { return this.state },
+      ping
+    }
+    const mgr = new WsManager(event => events.push(event), () => adapter, {
+      heartbeatAfterMs: 100, reconnectAfterMs: 200, checkEveryMs: 25
+    })
+    mgr.connect('okx', 'BTC-USDT')
+    await vi.advanceTimersByTimeAsync(125)
+    expect(ping).toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(events.some(event => event.type === 'status' && event.status === 'disconnected' && event.message?.includes('watchdog'))).toBe(true)
+    mgr.disconnect()
+  })
+
   it('document.hidden pause/resume', async () => {
     const events: any[] = []
     const mgr = new WsManager((ev) => events.push(ev))

@@ -54,19 +54,29 @@ export class BinanceAdapter implements WsAdapter {
             priceStr,
             qty: parseFloat(data.q),
             side: data.m ? 'sell' : 'buy', // m = isBuyerMaker -> sell
-            ts: data.T
+            ts: data.T,
+            tradeId: String(data.a ?? data.t ?? ''),
+            notional: priceNum * parseFloat(data.q),
+            exchange: 'binance',
+            symbol: this.symbol.toUpperCase(),
+            receiveTs: Date.now()
           }
           this.cb?.({ type: 'trade', data: trade })
         } else if (stream.includes('@depth')) {
           const depth: NormalizedDepth = {
             bids: (data.bids || []).map((x: string[]) => [parseFloat(x[0]), parseFloat(x[1])] as [number, number]),
             asks: (data.asks || []).map((x: string[]) => [parseFloat(x[0]), parseFloat(x[1])] as [number, number]),
-            ts: data.E || Date.now()
+            ts: data.E || Date.now(),
+            kind: 'snapshot',
+            lastSeq: Number(data.lastUpdateId ?? data.u ?? 0),
+            exchange: 'binance',
+            symbol: this.symbol.toUpperCase(),
+            receiveTs: Date.now()
           }
           this.cb?.({ type: 'depth', data: depth })
         } else if (stream.includes('@markPrice')) {
           const priceStr: string = data.p
-          const mark = { price: Number(priceStr), priceStr, ts: data.E }
+          const mark = { price: Number(priceStr), priceStr, ts: data.E, exchange: 'binance' as const, symbol: this.symbol.toUpperCase(), receiveTs: Date.now() }
           this.cb?.({ type: 'mark', data: mark })
         }
       } catch {}

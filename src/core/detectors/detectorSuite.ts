@@ -7,11 +7,13 @@
 import type { BookLevel, OrderBook } from '../book/orderBookDiff'
 import type { FlowCandle } from '../flow/flowEngine'
 import type { MicroSignal } from '../signal/tradePlan'
+import { systemClock, type Clock } from '../../application/clock'
 
 // ── Types ────────────────────────────────────────────────
 
 export interface WallTrack {
   key: string
+  side: 'bid' | 'ask'
   price: number
   qty: number
   notional: number
@@ -114,7 +116,7 @@ export class DetectorSuite {
   private liquidations: Liquidation[] = []
   private trades: { price: number; notional: number; side: string }[] = []
 
-  constructor(config?: Partial<DetectorConfig>) {
+  constructor(config?: Partial<DetectorConfig>, private readonly clock: Clock = systemClock) {
     this.config = {
       wallMultiplier: 3.0,
       wallNotionalMultiplier: 3.0,
@@ -193,18 +195,18 @@ export class DetectorSuite {
     const avgAsk = median(asks.map(x => x.qty))
     const medianNotional = median([...bids, ...asks].map(x => x.notional))
     const notionalThreshold = Math.max(5_000, medianNotional * notionalMult)
-    const nowTs = Date.now()
+    const nowTs = this.clock.now()
 
     const scan = (levels: BookLevel[], side: 'bid' | 'ask', avg: number): void => {
       for (const lv of levels) {
         if (lv.qty <= avg * mult) continue
 
-        const key = lv.price.toFixed(8)
+        const key = `${side}:${priceToKey(lv.price)}`
         const list = this.state.walls[side]
         let w = list.find(x => x.key === key)
 
         if (!w) {
-          w = { key, price: lv.price, qty: lv.qty, notional: lv.notional, firstSeen: nowTs, lastSeen: nowTs, persistence: 1, refreshCount: 0, lastQty: lv.qty }
+          w = { key, side, price: lv.price, qty: lv.qty, notional: lv.notional, firstSeen: nowTs, lastSeen: nowTs, persistence: 1, refreshCount: 0, lastQty: lv.qty }
           list.push(w)
         } else {
           if (w.qty !== lv.qty) {
@@ -345,36 +347,34 @@ export class DetectorSuite {
 
   // ── 5. Ladder Detection ──────────────────────────────
   private detectLadder(): void {
-    const walls = this.state.walls.bid
-    if (walls.length < 3) return
-
-    const sorted = [...walls].sort((a, b) => b.price - a.price)
-    let ladderCount = 0
-
-    for (let i = 0; i < sorted.length - 2; i++) {
-      const g1 = sorted[i].price - sorted[i + 1].price
-      const g2 = sorted[i + 1].price - sorted[i + 2].price
-      if (g1 > 0 && g2 > 0 && Math.abs(g1 - g2) / g1 < 0.3) {
-        ladderCount++
+    const scan = (walls: WallTrack[], side: 'bid' | 'ask') => {
+      if (walls.length < 3) return 0
+      const sorted = [...walls].sort((a, b) => side === 'bid' ? b.price - a.price : a.price - b.price)
+      let regular = 0
+      for (let i = 0; i < sorted.length - 2; i++) {
+        const gap1 = Math.abs(sorted[i].price - sorted[i + 1].price)
+        const gap2 = Math.abs(sorted[i + 1].price - sorted[i + 2].price)
+        if (gap1 > 0 && gap2 > 0 && Math.abs(gap1 - gap2) / gap1 < 0.3) regular++
       }
+      if (regular > 0) {
+        this.emitSignal({
+          type: side === 'bid' ? 'BID_LADDER_BUILDING' : 'ASK_LADDER_BUILDING',
+          bias: side === 'bid' ? 'bullish' : 'bearish',
+          confidence: clamp(60 + regular * 8, 60, 88),
+          description: `${side === 'bid' ? 'Bid' : 'Ask'} ladder: ${regular + 2} düzenli wall`,
+          price: sorted[0].price,
+          evidence: { side, wallCount: regular + 2 }
+        })
+      }
+      return regular
     }
-
-    if (ladderCount >= 1 && ladderCount > this.state.ladderCount) {
-      this.state.ladderCount = ladderCount
-      this.emitSignal({
-        type: 'LADDER_BUILDING',
-        bias: 'bullish',
-        confidence: clamp(60 + ladderCount * 8, 60, 88),
-        description: `Ladder yapısı: ${ladderCount + 2} düzenli bid wall — birikim sinyali`,
-        price: sorted[0].price,
-        evidence: { wallCount: ladderCount + 2 }
-      })
-    }
+    const count = Math.max(scan(this.state.walls.bid, 'bid'), scan(this.state.walls.ask, 'ask'))
+    this.state.ladderCount = count
   }
 
   // ── 6. Spoofing Detection ────────────────────────────
   private detectSpoofing(): void {
-    const nowTs = Date.now()
+    const nowTs = this.clock.now()
     if (nowTs - this.state.lastSpoofCheck < 500) return
     this.state.lastSpoofCheck = nowTs
 
@@ -398,7 +398,7 @@ export class DetectorSuite {
       if (pull && w.notional > 50_000) {
         this.emitSignal({
           type: 'HIGH_CONFIDENCE_SPOOF',
-          bias: w.key.includes('bid') ? 'bearish' : 'bullish',
+          bias: w.side === 'bid' ? 'bearish' : 'bullish',
           confidence: 83,
           description: `Şüpheli spoof duvarı @ ${fmtPrice(w.price)}`,
           price: w.price,
@@ -409,7 +409,7 @@ export class DetectorSuite {
       if (isHighRefresh && w.notional > 30_000) {
         this.emitSignal({
           type: 'HIGH_REFRESH_SPOOF',
-          bias: w.key.includes('bid') ? 'bearish' : 'bullish',
+          bias: w.side === 'bid' ? 'bearish' : 'bullish',
           confidence: clamp(70 + refreshRate * 8, 70, 92),
           description: `Yüksek refresh spoof @ ${fmtPrice(w.price)} — ${refreshRate.toFixed(1)}/s qty değişimi`,
           price: w.price,
@@ -422,42 +422,34 @@ export class DetectorSuite {
   // ── 7. Iceberg Detection ─────────────────────────────
   private detectIceberg(): void {
     const recentTrades = this.trades.slice(-80)
-    const levels = new Map<string, { price: number; tradeNotional: number; count: number }>()
+    const levels = new Map<string, { price: number; tradeNotional: number; count: number; aggressor: 'buy' | 'sell' }>()
 
-    for (const t of recentTrades) {
-      const k = priceToKey(t.price)
-      if (!levels.has(k)) {
-        levels.set(k, { price: t.price, tradeNotional: 0, count: 0 })
-      }
-      const x = levels.get(k)!
-      x.tradeNotional += t.notional
-      x.count += 1
+    for (const trade of recentTrades) {
+      const aggressor: 'buy' | 'sell' = trade.side === 'buy' ? 'buy' : 'sell'
+      const key = `${priceToKey(trade.price)}:${aggressor}`
+      const current = levels.get(key) ?? { price: trade.price, tradeNotional: 0, count: 0, aggressor }
+      current.tradeNotional += trade.notional
+      current.count += 1
+      levels.set(key, current)
     }
 
-    for (const [k, x] of levels) {
-      const depthAt = [...this.book!.bids, ...this.book!.asks].find(
-        l => priceToKey(l.price) === k
-      )
-      if (!depthAt) continue
+    for (const [key, level] of levels) {
+      const bookSide = level.aggressor === 'sell' ? this.book!.bids : this.book!.asks
+      const depthAt = bookSide.find(item => priceToKey(item.price) === priceToKey(level.price))
+      if (!depthAt || depthAt.qty <= 0 || level.count < 3) continue
+      const ratio = level.tradeNotional / (depthAt.notional || 1)
+      if (ratio <= 2 || this.state.icebergZones.find(zone => zone.key === key)) continue
 
-      if (x.tradeNotional > depthAt.notional * 2 && depthAt.qty > 0) {
-        if (!this.state.icebergZones.find(z => z.key === k)) {
-          this.state.icebergZones.push({
-            key: k,
-            price: x.price,
-            firstSeen: Date.now(),
-            score: x.tradeNotional / (depthAt.notional || 1)
-          })
-          this.emitSignal({
-            type: 'ICEBERG_ORDER',
-            bias: 'bullish',
-            confidence: 78,
-            description: `Iceberg benzeri hidden liquidity @ ${fmtPrice(x.price)}`,
-            price: x.price,
-            evidence: { tradeNotional: x.tradeNotional, depthNotional: depthAt.notional }
-          })
-        }
-      }
+      this.state.icebergZones.push({ key, price: level.price, firstSeen: this.clock.now(), score: ratio })
+      const bullish = level.aggressor === 'sell' // aggressive sells repeatedly absorbed at a bid
+      this.emitSignal({
+        type: 'ICEBERG_ORDER',
+        bias: bullish ? 'bullish' : 'bearish',
+        confidence: clamp(65 + Math.min(25, ratio * 4), 65, 90),
+        description: `Iceberg benzeri yenilenen ${bullish ? 'bid' : 'ask'} likiditesi @ ${fmtPrice(level.price)}`,
+        price: level.price,
+        evidence: { aggressor: level.aggressor, tradeCount: level.count, tradeNotional: level.tradeNotional, depthNotional: depthAt.notional, ratio }
+      })
     }
   }
 
@@ -485,7 +477,7 @@ export class DetectorSuite {
 
   // ── 9. Liquidation Cluster ───────────────────────────
   private detectLiquidationCluster(): void {
-    const recent = this.liquidations.filter(l => Date.now() - l.ts < 10_000)
+    const recent = this.liquidations.filter(l => this.clock.now() - l.ts < 10_000)
     if (recent.length < 5) return
 
     const totalNotional = recent.reduce((a, l) => a + l.notional, 0)
@@ -504,7 +496,7 @@ export class DetectorSuite {
     })
   }
 
-  /** Emit a signal event (will be consumed by TradePlanGenerator). */
+  /** Emit structured detector evidence for the DetectorRegistry. */
   private emitSignal(sig: Omit<MicroSignal, 'id' | 'ts' | 'decay' | 'expiresAt'>): void {
     this.emit('signal:add', sig)
   }
@@ -532,5 +524,13 @@ export class DetectorSuite {
       icebergZones: [],
       lastSpoofCheck: 0
     }
+    this.book = null
+    this.micro = null
+    this.vpinValue = 0
+    this.lastPrice = 0
+    this.flowCandles = []
+    this.cvdHistory = []
+    this.liquidations = []
+    this.trades = []
   }
 }

@@ -1,7 +1,6 @@
 import { useSettingsStore } from '../../store/settingsStore'
-import { useDataStore } from '../../store/dataStore'
-import { playBuy, playSell } from '../../core/audio/sound'
 import { useState, useMemo, useEffect } from 'react'
+import { useMarketRuntime } from '../../app/RuntimeContext'
 
 const FALLBACK_FUTURES = [
   'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','DOTUSDT','LINKUSDT','LTCUSDT','BCHUSDT','FILUSDT','ARBUSDT','OPUSDT','SUIUSDT','APTUSDT','PEPEUSDT','SHIBUSDT','TRBUSDT','BLZUSDT','WIFUSDT','ENAUSDT','TAOUSDT','NEARUSDT','UNIUSDT','ATOMUSDT','XLMUSDT','VETUSDT','ICPUSDT','FETUSDT','RNDRUSDT','INJUSDT','SEIUSDT','TIAUSDT','JUPUSDT','PYTHUSDT','BONKUSDT','FLOKIUSDT','MEMEUSDT','ORDIUSDT','1000PEPEUSDT','1000SHIBUSDT'
@@ -22,33 +21,37 @@ export function SettingsScreen() {
     weights,
     threshold,
     cooldown,
+    confirmations,
     sound,
     haptics,
+    reducedMotion,
     setSource,
     setSymbol,
     setWeights,
     setThreshold,
     setCooldown,
+    setConfirmations,
     setSound,
-    setHaptics
+    setHaptics,
+    setReducedMotion
   } = useSettingsStore()
 
+  const runtime = useMarketRuntime()
   const [coinInput, setCoinInput] = useState(symbol.replace('-',''))
   const [showDropdown, setShowDropdown] = useState(false)
   const [futuresCoins, setFuturesCoins] = useState<string[]>(FALLBACK_FUTURES)
 
   useEffect(() => {
-    fetch('https://fapi.binance.com/fapi/v1/exchangeInfo')
-      .then(r => r.json())
-      .then((data: any) => {
-        const syms: string[] = (data.symbols || [])
-          .filter((s: any) => s.status === 'TRADING' && s.contractType === 'PERPETUAL' && s.quoteAsset === 'USDT')
-          .map((s: any) => s.symbol as string)
-          .filter((s: string) => !s.includes('_'))
-        if (syms.length > 20) setFuturesCoins(syms)
-      })
-      .catch(() => {})
-  }, [])
+    const controller = new AbortController()
+    const url = source === 'okx' ? 'https://www.okx.com/api/v5/public/instruments?instType=SWAP' : 'https://fapi.binance.com/fapi/v1/exchangeInfo'
+    fetch(url, { signal: controller.signal }).then(response => response.json()).then((data: any) => {
+      const symbols: string[] = source === 'okx'
+        ? (data.data ?? []).filter((item: any) => item.state === 'live' && String(item.instId).endsWith('-USDT-SWAP')).map((item: any) => String(item.instId).replace('-USDT-SWAP', 'USDT').replace('-', ''))
+        : (data.symbols ?? []).filter((item: any) => item.status === 'TRADING' && item.contractType === 'PERPETUAL' && item.quoteAsset === 'USDT').map((item: any) => item.symbol)
+      if (symbols.length > 20) setFuturesCoins(symbols.filter(symbol => !symbol.includes('_')))
+    }).catch(() => undefined)
+    return () => controller.abort()
+  }, [source])
 
   const filteredCoins = useMemo(() => {
     const q = coinInput.toUpperCase()
@@ -61,9 +64,6 @@ export function SettingsScreen() {
     setCoinInput(norm)
     setShowDropdown(false)
     if (norm && norm !== symbol.replace('-','')) {
-      // Eski verileri temizle ve yeni coine bağlan
-      useDataStore.getState().reset()
-      // Symbol'ü futures formatında kaydet (BTCUSDT)
       setSymbol(norm)
     }
   }
@@ -246,10 +246,16 @@ export function SettingsScreen() {
         </div>
       </div>
 
+      <div style={{ padding: 12, borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+        <label style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>AYNI YÖN CONFIRMATION: {confirmations}</label>
+        <input type="range" min={1} max={5} step={1} value={confirmations} onChange={event => setConfirmations(Number(event.target.value))} style={{ width: '100%', accentColor: 'var(--purple)' }} />
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {[
           { label: 'Ses', value: sound, setter: setSound },
-          { label: 'Titreşim (Haptik)', value: haptics, setter: setHaptics }
+          { label: 'Titreşim (Haptik)', value: haptics, setter: setHaptics },
+          { label: 'Azaltılmış animasyon', value: reducedMotion, setter: setReducedMotion }
         ].map((it) => (
           <label key={it.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', cursor: 'pointer' }}>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>{it.label}</span>
@@ -260,24 +266,14 @@ export function SettingsScreen() {
 
       <div style={{ display: 'flex', gap: 8 }}>
         <button
-          onClick={() => {
-            const sig = { id: `test-${Date.now()}`, side: 'BUY' as const, price: useDataStore.getState().price || 50000, confidence: 85, score: 1.1, breakdown: { cvd: 0.8, obi: 0.5, vel: 0.3, micro: 0.4, vpin: 0.2, detector: 0.5, w1: weights.w1, w2: weights.w2, w3: weights.w3, w4: weights.w4, w5: weights.w5, w6: weights.w6 }, ts: Date.now() }
-            useDataStore.setState((s) => ({ signals: [sig, ...s.signals].slice(0, 200) }))
-            if (sound) playBuy()
-            window.dispatchEvent(new CustomEvent('signal-fired', { detail: sig }))
-          }}
+          onClick={() => runtime?.injectTestSignal('BUY')}
           className="touch-target"
           style={{ flex: 1, padding: '12px', borderRadius: 12, border: '1px solid var(--green)', background: 'rgba(52,211,153,0.12)', color: 'var(--green)', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
         >
           Test BUY Çak (880Hz)
         </button>
         <button
-          onClick={() => {
-            const sig = { id: `test-${Date.now()}`, side: 'SELL' as const, price: useDataStore.getState().price || 50000, confidence: 78, score: -1.0, breakdown: { cvd: -0.7, obi: -0.5, vel: -0.4, micro: -0.3, vpin: 0.6, detector: -0.6, w1: weights.w1, w2: weights.w2, w3: weights.w3, w4: weights.w4, w5: weights.w5, w6: weights.w6 }, ts: Date.now() }
-            useDataStore.setState((s) => ({ signals: [sig, ...s.signals].slice(0, 200) }))
-            if (sound) playSell()
-            window.dispatchEvent(new CustomEvent('signal-fired', { detail: sig }))
-          }}
+          onClick={() => runtime?.injectTestSignal('SELL')}
           className="touch-target"
           style={{ flex: 1, padding: '12px', borderRadius: 12, border: '1px solid var(--red)', background: 'rgba(248,113,113,0.12)', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
         >

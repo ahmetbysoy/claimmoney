@@ -1,89 +1,69 @@
-/**
- * Signal Filters - canlı takip debug sonrası patchler (v4 - 5dk canlı sonrası + ATR dinamik)
- * - Yatay piyasa filtresi: fiyat range < %dinamik ise sinyal baskıla (base 0.02, ATR'ye göre 0.02-0.15)
- *   BTC'de 0.02, küçük cap yüksek vol'de 0.10+ oto (DetectorSuite bağlanınca daha anlamlı)
- * - OBI confluence: |OBI| < 0.06 ise baskıla
- * - 2/3 onay: en az 2 indikatör aynı yönde ve |z|>0.30
- */
+import type { DataQuality, FilterDecision, FeatureFrame } from '../../types'
 
-function mean(arr: number[]): number {
-  return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0
+const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
+const std = (values: number[]) => {
+  if (values.length < 2) return 0
+  const average = mean(values)
+  return Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length)
 }
-function std(arr: number[]): number {
-  if (arr.length < 2) return 0
-  const m = mean(arr)
-  const v = arr.reduce((a,b)=>a+(b-m)**2,0)/arr.length
-  return Math.sqrt(v)
-}
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v))
-}
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
-export function isFlatMarket(priceHistory: { price: number; ts: number }[], windowMs = 60000, baseThresholdPct = 0.02): boolean {
+export function isFlatMarket(priceHistory: { price: number; ts: number }[], windowMs = 60_000, baseThresholdPct = 0.02, now?: number): boolean {
   if (priceHistory.length < 10) return false
-  const now = Date.now()
-  const cutoff = now - windowMs
-  const recent = priceHistory.filter(p => p.ts >= cutoff)
-  if (recent.length < 10) return false
-  const prices = recent.map(p => p.price)
-  const max = Math.max(...prices)
-  const min = Math.min(...prices)
-  const mid = (max + min) / 2
-  if (mid === 0) return true
-  const rangePct = ((max - min) / mid) * 100
-  // ATR/volatiliteye göre dinamik eşik: vol yüksekse flat eşiği de yükselir
-  const volPct = mid ? (std(prices) / mid) * 100 : 0
-  const dynamicThreshold = clamp(Math.max(baseThresholdPct, volPct * 1.2), 0.02, 0.15)
-  return rangePct < dynamicThreshold
+  const evaluationTime = now ?? priceHistory.at(-1)?.ts ?? Date.now()
+  const prices = priceHistory.filter(item => item.ts >= evaluationTime - windowMs).map(item => item.price).filter(Number.isFinite)
+  if (prices.length < 10) return false
+  const high = Math.max(...prices), low = Math.min(...prices), mid = (high + low) / 2
+  if (!mid) return true
+  const rangePct = (high - low) / mid * 100
+  const volatilityPct = std(prices) / mid * 100
+  return rangePct < clamp(Math.max(baseThresholdPct, volatilityPct * 1.2), 0.02, 0.15)
 }
 
-export function hasOBIConfluence(obi: number, minAbs = 0.06): boolean {
-  return Math.abs(obi) >= minAbs
+export function hasOBIConfluence(obi: number, minAbs = 0.06, score?: number): boolean {
+  const strong = Math.abs(obi) >= minAbs
+  return score === undefined ? strong : strong && Math.sign(obi) === Math.sign(score)
 }
 
-export function hasConfluence(
-  cvdZ: number,
-  obi: number,
-  velZ: number,
-  score: number,
-  minZ = 0.30
-): boolean {
-  const scoreSide = score > 0 ? 1 : -1
-  let count = 0
-  if (Math.sign(cvdZ) === scoreSide && Math.abs(cvdZ) >= minZ) count++
-  if (Math.sign(obi) === scoreSide && Math.abs(obi) >= minZ) count++
-  if (Math.sign(velZ) === scoreSide && Math.abs(velZ) >= minZ) count++
-  return count >= 2
+export function hasConfluence(cvdZ: number, obi: number, velZ: number, score: number, minZ = 0.30): boolean {
+  if (!score) return false
+  const direction = Math.sign(score)
+  const normalizedObi = obi * 2
+  return [cvdZ, normalizedObi, velZ].filter(value => Math.sign(value) === direction && Math.abs(value) >= minZ).length >= 2
 }
 
-export function isHighArbitrageSpread(spreadPct: number, threshold = 0.15): boolean {
-  return spreadPct > threshold
+export function isHighArbitrageSpread(spreadPct: number, threshold = 0.15): boolean { return spreadPct > threshold }
+export interface FilterResult { pass: boolean; reason?: string; decisions?: FilterDecision[]; scoreAdjustment?: number }
+
+export interface FilterParams {
+  priceHistory: { price: number; ts: number }[]; cvdZ: number; obi: number; velZ: number; score: number
+  spreadPct?: number; quality?: DataQuality; vpin?: number; vpinValid?: boolean; now?: number
 }
 
-export interface FilterResult {
-  pass: boolean
-  reason?: string
+export function evaluateFilters(params: FilterParams): FilterDecision[] {
+  const decisions: FilterDecision[] = []
+  const add = (id: string, pass: boolean, reason: string, mode: FilterDecision['mode'] = 'hard-veto', adjustment = 0) => decisions.push({ id, pass, reason, mode, adjustment })
+  const quality = params.quality ?? 'good'
+  add('data-quality', quality === 'good', quality === 'good' ? 'Data is fresh and synchronized' : `Data quality: ${quality}`)
+  const flat = isFlatMarket(params.priceHistory, 60_000, 0.02, params.now)
+  add('market-regime', !flat, flat ? 'Flat market — range below adaptive threshold' : 'Market range is sufficient', 'soft-penalty', flat ? -0.15 : 0)
+  add('obi-strength', hasOBIConfluence(params.obi, 0.06, params.score), `Directional OBI ${params.obi.toFixed(3)}`)
+  add('feature-confluence', hasConfluence(params.cvdZ, params.obi, params.velZ, params.score, 0.30), 'Need two of CVD/OBI/velocity in score direction')
+  const crossSpread = params.spreadPct ?? 0
+  add('cross-exchange-quality', !isHighArbitrageSpread(crossSpread, 0.15), `Cross-exchange dispersion ${crossSpread.toFixed(3)}%`)
+  const toxicityPass = !(params.vpinValid && (params.vpin ?? 0) >= 0.7 && Math.abs(params.score) < 1)
+  add('toxicity', toxicityPass, toxicityPass ? 'Toxicity gate passed' : 'Toxic flow with insufficient directional score')
+  return decisions
 }
 
-export function applyFilters(params: {
-  priceHistory: { price: number; ts: number }[]
-  cvdZ: number
-  obi: number
-  velZ: number
-  score: number
-  spreadPct?: number
-}): FilterResult {
-  if (isFlatMarket(params.priceHistory, 60000, 0.02)) {
-    return { pass: false, reason: 'Flat market - range < dinamik eşik (ATR)' }
-  }
-  if (!hasOBIConfluence(params.obi, 0.06)) {
-    return { pass: false, reason: `OBI too weak |OBI|=${params.obi.toFixed(2)} <0.06` }
-  }
-  if (!hasConfluence(params.cvdZ, params.obi, params.velZ, params.score, 0.30)) {
-    return { pass: false, reason: 'No confluence - need 2/3 indicators same direction' }
-  }
-  if (params.spreadPct !== undefined && isHighArbitrageSpread(params.spreadPct, 0.15)) {
-    return { pass: false, reason: `High arbitrage spread ${params.spreadPct.toFixed(2)}% >0.15% - mikro yapı güvenilmez` }
-  }
-  return { pass: true }
+export function applyFilters(params: FilterParams): FilterResult {
+  const decisions = evaluateFilters(params)
+  const hardFailure = decisions.find(decision => decision.mode === 'hard-veto' && !decision.pass)
+  const scoreAdjustment = decisions.filter(decision => decision.mode === 'soft-penalty' && !decision.pass).reduce((sum, decision) => sum + decision.adjustment, 0)
+  return { pass: !hardFailure, reason: hardFailure?.reason, decisions, scoreAdjustment }
+}
+
+export function filtersForFrame(frame: FeatureFrame, score: number, priceHistory: { price: number; ts: number }[], spreadPct = 0): FilterResult {
+  return applyFilters({ priceHistory, cvdZ: frame.cvdZ.value, obi: frame.obi.value, velZ: frame.velocityZ.value,
+    score, spreadPct, quality: frame.quality, vpin: frame.vpin.value, vpinValid: frame.vpin.valid, now: frame.eventTs })
 }

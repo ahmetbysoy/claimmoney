@@ -1,86 +1,124 @@
-import type { WsAdapter, WsEvent } from './types'
-import { OkxAdapter } from './adapters/okx'
 import { BinanceAdapter } from './adapters/binance'
+import { OkxAdapter } from './adapters/okx'
+import type { WsAdapter, WsEvent } from './types'
+import type { Source } from '../../types'
 
-export type Source = 'okx' | 'binance'
+export interface WsHealth {
+  state: 'connected' | 'connecting' | 'disconnected'
+  source: Source
+  symbol: string
+  reconnectAttempts: number
+  lastMessageAt: number
+  stale: boolean
+}
+export type AdapterFactory = (source: Source) => WsAdapter
 
 export class WsManager {
   private adapter: WsAdapter | null = null
   private source: Source = 'okx'
-  private symbol = 'BTC-USDT'
-  private cb: ((ev: WsEvent) => void) | null = null
+  private symbol = 'BTCUSDT'
   private reconnectAttempts = 0
-  private reconnectTimer: number | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private shouldReconnect = true
   private hiddenPaused = false
+  private disposed = false
+  private generation = 0
+  private reconnectScheduled = false
+  private lastMessageAt = 0
+  private visibilityHandler: (() => void) | null = null
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null
 
-  constructor(private onEvent: (ev: WsEvent) => void) {
-    this.cb = onEvent
-    // document.hidden pause/resume
+  constructor(
+    private readonly onEvent: (event: WsEvent) => void,
+    private readonly factory: AdapterFactory = source => source === 'okx' ? new OkxAdapter() : new BinanceAdapter(),
+    private readonly healthConfig = { heartbeatAfterMs: 10_000, reconnectAfterMs: 20_000, checkEveryMs: 2_500 }
+  ) {
     if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
+      this.visibilityHandler = () => {
+        if (this.disposed) return
         if (document.hidden) {
           this.hiddenPaused = true
-          // pause: disconnect but keep shouldReconnect true, will resume on visible
+          this.clearReconnect()
           this.adapter?.disconnect()
-        } else if (this.hiddenPaused) {
+        } else if (this.hiddenPaused && this.shouldReconnect) {
           this.hiddenPaused = false
-          this.connect(this.source, this.symbol)
+          this.createAdapterAndConnect()
         }
-      })
+      }
+      document.addEventListener('visibilitychange', this.visibilityHandler)
     }
   }
 
   connect(source: Source, symbol: string): void {
-    this.source = source
-    this.symbol = symbol
-    this.shouldReconnect = true
-    this.reconnectAttempts = 0
-    this.createAdapterAndConnect()
+    this.disposed = false; this.source = source; this.symbol = symbol; this.shouldReconnect = true
+    this.reconnectAttempts = 0; this.clearReconnect(); this.createAdapterAndConnect(); this.startWatchdog()
+  }
+  switchSource(source: Source): void { this.connect(source, this.symbol) }
+  switchSymbol(symbol: string): void { this.connect(this.source, symbol) }
+
+  private clearReconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null; this.reconnectScheduled = false
   }
 
-  switchSource(source: Source): void {
-    this.connect(source, this.symbol)
-  }
-
-  switchSymbol(symbol: string): void {
-    this.connect(this.source, symbol)
+  private startWatchdog(): void {
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer)
+    this.watchdogTimer = setInterval(() => {
+      if (this.disposed || this.hiddenPaused || this.getState() !== 'connected') return
+      const idleMs = Date.now() - this.lastMessageAt
+      if (idleMs >= this.healthConfig.reconnectAfterMs) {
+        this.generation += 1
+        this.adapter?.disconnect(); this.adapter = null
+        this.onEvent({ type: 'status', status: 'disconnected', message: `WebSocket watchdog: ${idleMs}ms without data` })
+        this.scheduleReconnect()
+      } else if (idleMs >= this.healthConfig.heartbeatAfterMs) {
+        this.adapter?.ping?.()
+      }
+    }, this.healthConfig.checkEveryMs)
   }
 
   disconnect(): void {
-    this.shouldReconnect = false
-    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer)
-    this.adapter?.disconnect()
-    this.adapter = null
+    this.shouldReconnect = false; this.disposed = true; this.generation += 1; this.clearReconnect()
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer); this.watchdogTimer = null
+    this.adapter?.disconnect(); this.adapter = null
+    if (this.visibilityHandler && typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.visibilityHandler)
+    this.visibilityHandler = null
   }
+  dispose(): void { this.disconnect() }
 
   private createAdapterAndConnect(): void {
-    if (this.adapter) this.adapter.disconnect()
-    this.adapter = this.source === 'okx' ? new OkxAdapter() : new BinanceAdapter()
-    this.adapter.onEvent((ev) => {
-      if (ev.type === 'status' && ev.status === 'disconnected' && this.shouldReconnect && !this.hiddenPaused) {
-        this.scheduleReconnect()
+    if (this.disposed || this.hiddenPaused) return
+    const generation = ++this.generation
+    this.clearReconnect()
+    this.lastMessageAt = Date.now()
+    this.adapter?.disconnect()
+    const adapter = this.factory(this.source)
+    this.adapter = adapter
+    adapter.onEvent(event => {
+      if (generation !== this.generation || this.disposed) return
+      this.lastMessageAt = Date.now()
+      if (event.type === 'status') {
+        if (event.status === 'connected') { this.reconnectAttempts = 0; this.reconnectScheduled = false }
+        if (event.status === 'disconnected' && this.shouldReconnect && !this.hiddenPaused) this.scheduleReconnect()
       }
-      if (ev.type === 'status' && ev.status === 'connected') {
-        this.reconnectAttempts = 0
-      }
-      this.cb?.(ev)
+      this.onEvent(event)
     })
-    this.adapter.connect(this.symbol)
+    adapter.connect(this.symbol)
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer)
-    this.reconnectAttempts++
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000) + Math.random() * 500
-    this.reconnectTimer = window.setTimeout(() => {
-      if (this.shouldReconnect && !this.hiddenPaused) {
-        this.createAdapterAndConnect()
-      }
+    if (this.reconnectScheduled || this.disposed) return
+    this.reconnectScheduled = true; this.reconnectAttempts += 1
+    const delay = Math.min(1000 * 2 ** (this.reconnectAttempts - 1), 30_000) + Math.random() * 500
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectScheduled = false; this.reconnectTimer = null
+      if (this.shouldReconnect && !this.hiddenPaused && !this.disposed) this.createAdapterAndConnect()
     }, delay)
   }
 
-  getState(): 'connected' | 'connecting' | 'disconnected' {
-    return this.adapter?.getConnectionState() ?? 'disconnected'
+  getState(): 'connected' | 'connecting' | 'disconnected' { return this.adapter?.getConnectionState() ?? 'disconnected' }
+  getHealth(staleAfterMs = 5000): WsHealth {
+    return { state: this.getState(), source: this.source, symbol: this.symbol, reconnectAttempts: this.reconnectAttempts,
+      lastMessageAt: this.lastMessageAt, stale: this.getState() === 'connected' && Date.now() - this.lastMessageAt > staleAfterMs }
   }
 }

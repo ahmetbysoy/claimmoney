@@ -1,246 +1,186 @@
-/**
- * Order Book Diff Engine — extracted from BOZOK_PRO
- * Map-based incremental order book with lastUpdateId sequence control.
- * Maintains a local copy of bids/asks, applies incremental diffs,
- * and recomputes microstructure metrics (spread, mid, OBI, microprice, slopes).
- */
+import type { Clock } from '../../application/clock'
+import { systemClock } from '../../application/clock'
 
-// ── Types ────────────────────────────────────────────────
-
-export interface BookLevel {
-  price: number
-  qty: number
-  notional: number
-}
-
-export interface OrderBook {
-  bids: BookLevel[]
-  asks: BookLevel[]
-  ts: number
-  lastUpdateId: number
-}
-
+export interface BookLevel { price: number; qty: number; notional: number }
+export interface OrderBook { bids: BookLevel[]; asks: BookLevel[]; ts: number; lastUpdateId: number; symbol?: string; synced: boolean }
 export interface MicrostructureData {
-  bestBid: number
-  bestAsk: number
-  spread: number
-  mid: number
-  obi: number
-  microprice: number
-  bidSlope: number
-  askSlope: number
-  depthBid: number
-  depthAsk: number
+  bestBid: number; bestAsk: number; spread: number; spreadBps: number; mid: number
+  obi: number; microprice: number; microDev: number; bidSlope: number; askSlope: number
+  depthBid: number; depthAsk: number; valid: boolean
+}
+export interface BookSnapshot { bids: [number, number][]; asks: [number, number][]; lastUpdateId: number; ts?: number }
+export interface BookDiff { bids: [number, number][]; asks: [number, number][]; U?: number; u?: number; eventTime?: number }
+export interface HeatFrame { ts: number; bids: BookLevel[]; asks: BookLevel[] }
+export interface OrderBookDiffConfig { maxLevels: number; heatmapWindowSec: number; heatSampleMs: number; distanceDecayBps: number }
+export type DiffApplyResult = 'applied' | 'stale' | 'gap' | 'invalid'
+
+type BookEvents = {
+  'book:update': OrderBook
+  'micro:update': MicrostructureData
+  'book:resync-required': { expected: number; first: number; last: number }
 }
 
-export interface BookSnapshot {
-  bids: [number, number][]
-  asks: [number, number][]
-  lastUpdateId: number
-}
+const finiteLevel = ([p, q]: [number, number]) => Number.isFinite(p) && p > 0 && Number.isFinite(q) && q >= 0
 
-export interface BookDiff {
-  bids: [number, number][]
-  asks: [number, number][]
-  U?: number
-  u?: number
-  eventTime?: number
-}
-
-export interface HeatFrame {
-  ts: number
-  bids: BookLevel[]
-  asks: BookLevel[]
-}
-
-export interface OrderBookDiffConfig {
-  maxLevels: number
-  heatmapWindowSec: number
-}
-
-// ── Utilities ─────────────────────────────────────────────
-
-function mean(arr: number[]): number {
-  return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
-}
-
-function median(arr: number[]): number {
-  if (!arr.length) return 0
-  const s = [...arr].sort((a, b) => a - b)
-  const m = Math.floor(s.length / 2)
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
-}
-
-function rollingSlope(levels: BookLevel[]): number {
-  if (levels.length < 2) return 0
-  const xs = levels.map((_, i) => i + 1)
-  const ys = levels.map(x => x.qty)
-  const xMean = mean(xs)
-  const yMean = mean(ys)
-  let num = 0
-  let den = 0
+function slopeByDistance(levels: BookLevel[], mid: number): number {
+  if (levels.length < 2 || !mid) return 0
+  const xs = levels.map(level => Math.abs(level.price - mid) / mid * 10_000)
+  const ys = levels.map(level => Math.log1p(level.notional))
+  const xMean = xs.reduce((a, b) => a + b, 0) / xs.length
+  const yMean = ys.reduce((a, b) => a + b, 0) / ys.length
+  let numerator = 0
+  let denominator = 0
   for (let i = 0; i < xs.length; i++) {
-    num += (xs[i] - xMean) * (ys[i] - yMean)
-    den += (xs[i] - xMean) ** 2
+    numerator += (xs[i] - xMean) * (ys[i] - yMean)
+    denominator += (xs[i] - xMean) ** 2
   }
-  return den ? num / den : 0
+  return denominator ? numerator / denominator : 0
 }
-
-// ── OrderBookDiff ─────────────────────────────────────────
 
 export class OrderBookDiff {
-  private book: OrderBook = { bids: [], asks: [], ts: 0, lastUpdateId: 0 }
+  private book: OrderBook = { bids: [], asks: [], ts: 0, lastUpdateId: 0, synced: false }
+  private bidMap = new Map<string, BookLevel>()
+  private askMap = new Map<string, BookLevel>()
   private heatHistory: HeatFrame[] = []
   private config: OrderBookDiffConfig
-  private listeners: Map<string, Set<Function>> = new Map()
+  private listeners = new Map<keyof BookEvents, Set<(payload: never) => void>>()
+  private lastHeatTs = 0
 
-  constructor(config?: Partial<OrderBookDiffConfig>) {
-    this.config = {
-      maxLevels: 200,
-      heatmapWindowSec: 30,
-      ...config
-    }
+  constructor(config?: Partial<OrderBookDiffConfig>, private readonly clock: Clock = systemClock) {
+    this.config = { maxLevels: 200, heatmapWindowSec: 30, heatSampleMs: 100, distanceDecayBps: 30, ...config }
   }
 
-  /** Subscribe to events: 'book:update', 'micro:update' */
-  on(event: string, fn: Function): () => void {
-    if (!this.listeners.has(event)) this.listeners.set(event, new Set())
-    this.listeners.get(event)!.add(fn)
-    return () => this.listeners.get(event)?.delete(fn)
+  on<K extends keyof BookEvents>(event: K, fn: (data: BookEvents[K]) => void): () => void {
+    const set = this.listeners.get(event) ?? new Set()
+    set.add(fn as (payload: never) => void)
+    this.listeners.set(event, set)
+    return () => set.delete(fn as (payload: never) => void)
   }
 
-  private emit(event: string, data?: unknown): void {
-    const set = this.listeners.get(event)
-    if (!set) return
-    for (const fn of [...set]) {
-      try { fn(data) } catch (e) { console.error(e) }
-    }
+  private emit<K extends keyof BookEvents>(event: K, data: BookEvents[K]): void {
+    for (const fn of [...(this.listeners.get(event) ?? [])]) fn(data as never)
   }
 
-  /** Apply a full snapshot (first load or reconnect). */
+  private key(price: number): string { return price.toString() }
+
+  private createLevel(price: number, qty: number): BookLevel {
+    return { price, qty, notional: price * qty }
+  }
+
+  private rebuildArrays(): void {
+    this.book.bids = [...this.bidMap.values()].sort((a, b) => b.price - a.price).slice(0, this.config.maxLevels)
+    this.book.asks = [...this.askMap.values()].sort((a, b) => a.price - b.price).slice(0, this.config.maxLevels)
+    this.bidMap = new Map(this.book.bids.map(level => [this.key(level.price), level]))
+    this.askMap = new Map(this.book.asks.map(level => [this.key(level.price), level]))
+  }
+
   applySnapshot(symbol: string, snapshot: BookSnapshot): void {
-    const bids = (snapshot.bids || []).map(([p, q]) => ({
-      price: +p,
-      qty: +q,
-      notional: (+p) * (+q)
-    }))
-    const asks = (snapshot.asks || []).map(([p, q]) => ({
-      price: +p,
-      qty: +q,
-      notional: (+p) * (+q)
-    }))
+    this.bidMap.clear()
+    this.askMap.clear()
+    for (const level of snapshot.bids ?? []) if (finiteLevel(level) && level[1] > 0) this.bidMap.set(this.key(level[0]), this.createLevel(level[0], level[1]))
+    for (const level of snapshot.asks ?? []) if (finiteLevel(level) && level[1] > 0) this.askMap.set(this.key(level[0]), this.createLevel(level[0], level[1]))
     this.book = {
-      bids,
-      asks,
-      ts: Date.now(),
-      lastUpdateId: snapshot.lastUpdateId || 0
+      bids: [], asks: [], symbol, ts: snapshot.ts ?? this.clock.now(),
+      lastUpdateId: snapshot.lastUpdateId ?? 0, synced: true
     }
-    this.recompute()
-    this.emit('book:update', this.book)
+    this.rebuildArrays()
+    const micro = this.recompute()
+    this.emit('book:update', this.getBook())
+    if (micro) this.emit('micro:update', micro)
   }
 
-  /** Apply an incremental diff. Returns false if stale/out-of-order. */
-  applyDiff(diff: BookDiff): boolean {
-    const { bids = [], asks = [], U, u } = diff
-
-    // Sequence control: skip if this update is older than what we already have
-    if (this.book.lastUpdateId && U && u && u <= this.book.lastUpdateId) {
-      return false
-    }
-
-    const bookB = new Map(this.book.bids.map(l => [l.price.toFixed(8), l]))
-    const bookA = new Map(this.book.asks.map(l => [l.price.toFixed(8), l]))
-
-    const applySide = (arr: [number, number][], map: Map<string, BookLevel>): void => {
-      for (const [p, q] of arr) {
-        const price = +p
-        const qty = +q
-        const key = price.toFixed(8)
-        if (qty <= 0) {
-          map.delete(key)
-        } else {
-          map.set(key, { price, qty, notional: price * qty })
-        }
+  applyDelta(diff: BookDiff): DiffApplyResult {
+    if (!this.book.synced) return 'gap'
+    const first = diff.U
+    const last = diff.u
+    if (last !== undefined && last <= this.book.lastUpdateId) return 'stale'
+    if (first !== undefined && last !== undefined && this.book.lastUpdateId > 0) {
+      const expected = this.book.lastUpdateId + 1
+      if (!(first <= expected && expected <= last)) {
+        this.book.synced = false
+        this.emit('book:resync-required', { expected, first, last })
+        return 'gap'
       }
     }
+    if (![...(diff.bids ?? []), ...(diff.asks ?? [])].every(finiteLevel)) return 'invalid'
 
-    applySide(bids, bookB)
-    applySide(asks, bookA)
-
-    this.book.bids = [...bookB.values()]
-      .sort((a, b) => b.price - a.price)
-      .slice(0, this.config.maxLevels)
-    this.book.asks = [...bookA.values()]
-      .sort((a, b) => a.price - b.price)
-      .slice(0, this.config.maxLevels)
-
-    this.book.lastUpdateId = u || this.book.lastUpdateId
-    this.book.ts = Date.now()
-
-    this.recompute()
-    this.emit('book:update', this.book)
-    return true
+    const applySide = (levels: [number, number][], map: Map<string, BookLevel>) => {
+      for (const [price, qty] of levels) {
+        const key = this.key(price)
+        if (qty === 0) map.delete(key)
+        else map.set(key, this.createLevel(price, qty))
+      }
+    }
+    applySide(diff.bids ?? [], this.bidMap)
+    applySide(diff.asks ?? [], this.askMap)
+    this.rebuildArrays()
+    this.book.lastUpdateId = last ?? this.book.lastUpdateId
+    this.book.ts = diff.eventTime ?? this.clock.now()
+    const micro = this.recompute()
+    this.emit('book:update', this.getBook())
+    if (micro) this.emit('micro:update', micro)
+    return 'applied'
   }
 
-  /** Recompute microstructure metrics from current book state. */
+  /** Backwards-compatible boolean API. Prefer applyDelta. */
+  applyDiff(diff: BookDiff): boolean { return this.applyDelta(diff) === 'applied' }
+
+  /** Replace a top-N snapshot, used by Binance partial-book streams and normalized OKX books. */
+  replaceTop(symbol: string, bids: [number, number][], asks: [number, number][], ts: number, seq = 0): MicrostructureData | null {
+    this.applySnapshot(symbol, { bids, asks, lastUpdateId: seq, ts })
+    return this.computeMicrostructure()
+  }
+
+  private computeMicrostructure(): MicrostructureData | null {
+    const bid = this.book.bids[0]
+    const ask = this.book.asks[0]
+    if (!bid || !ask || bid.price > ask.price || bid.qty <= 0 || ask.qty <= 0) return null
+    const spread = ask.price - bid.price
+    const mid = (ask.price + bid.price) / 2
+    const levels = Math.min(20, this.book.bids.length, this.book.asks.length)
+    let weightedBid = 0, weightedAsk = 0, depthBid = 0, depthAsk = 0
+    for (const level of this.book.bids.slice(0, levels)) {
+      const distanceBps = Math.abs(level.price - mid) / mid * 10_000
+      const weight = Math.exp(-distanceBps / this.config.distanceDecayBps)
+      weightedBid += level.notional * weight
+      depthBid += level.qty
+    }
+    for (const level of this.book.asks.slice(0, levels)) {
+      const distanceBps = Math.abs(level.price - mid) / mid * 10_000
+      const weight = Math.exp(-distanceBps / this.config.distanceDecayBps)
+      weightedAsk += level.notional * weight
+      depthAsk += level.qty
+    }
+    const microprice = (ask.price * bid.qty + bid.price * ask.qty) / (bid.qty + ask.qty)
+    const microDev = spread > 0 ? (microprice - mid) / (spread / 2) : 0
+    return {
+      bestBid: bid.price, bestAsk: ask.price, spread, spreadBps: mid ? spread / mid * 10_000 : 0, mid,
+      obi: (weightedBid - weightedAsk) / (weightedBid + weightedAsk || 1), microprice, microDev,
+      bidSlope: slopeByDistance(this.book.bids.slice(0, levels), mid),
+      askSlope: slopeByDistance(this.book.asks.slice(0, levels), mid),
+      depthBid, depthAsk, valid: true
+    }
+  }
+
   recompute(): MicrostructureData | null {
-    const b = this.book.bids[0]
-    const a = this.book.asks[0]
-    if (!b || !a) return null
-
-    const spread = a.price - b.price
-    const mid = (a.price + b.price) / 2
-
-    const levels = Math.min(10, this.book.bids.length, this.book.asks.length)
-    const bidQty = this.book.bids.slice(0, levels).reduce((x, y) => x + y.qty, 0)
-    const askQty = this.book.asks.slice(0, levels).reduce((x, y) => x + y.qty, 0)
-    const microprice = (a.price * b.qty + b.price * a.qty) / (b.qty + a.qty)
-
-    const micro: MicrostructureData = {
-      bestBid: b.price,
-      bestAsk: a.price,
-      spread,
-      mid,
-      obi: (bidQty - askQty) / (bidQty + askQty || 1),
-      microprice,
-      bidSlope: rollingSlope(this.book.bids.slice(0, levels)),
-      askSlope: rollingSlope(this.book.asks.slice(0, levels)),
-      depthBid: bidQty,
-      depthAsk: askQty
+    const micro = this.computeMicrostructure()
+    const now = this.clock.now()
+    if (micro && now - this.lastHeatTs >= this.config.heatSampleMs) {
+      this.lastHeatTs = now
+      this.heatHistory.push({ ts: now, bids: this.book.bids.slice(0, 20).map(x => ({ ...x })), asks: this.book.asks.slice(0, 20).map(x => ({ ...x })) })
+      const cutoff = now - this.config.heatmapWindowSec * 1000
+      this.heatHistory = this.heatHistory.filter(frame => frame.ts >= cutoff)
     }
-
-    // Heatmap history (for VPVR visualization)
-    this.heatHistory.push({
-      ts: Date.now(),
-      bids: this.book.bids.slice(0, 20),
-      asks: this.book.asks.slice(0, 20)
-    })
-    const maxHeatFrames = this.config.heatmapWindowSec * 10
-    if (this.heatHistory.length > maxHeatFrames) {
-      this.heatHistory.splice(0, this.heatHistory.length - maxHeatFrames)
-    }
-
-    this.emit('micro:update', micro)
     return micro
   }
 
-  /** Check if the book data is stale (no update for thresholdMs). */
-  isStale(thresholdMs: number): boolean {
-    return Date.now() - this.book.ts > thresholdMs
-  }
-
-  /** Getters */
-  getBook(): OrderBook {
-    return this.book
-  }
-
-  getHeatHistory(): HeatFrame[] {
-    return this.heatHistory
-  }
-
-  /** Reset internal state (e.g. on symbol change). */
+  getMicrostructure(): MicrostructureData | null { return this.computeMicrostructure() }
+  isStale(thresholdMs: number): boolean { return !this.book.ts || this.clock.now() - this.book.ts > thresholdMs }
+  isSynced(): boolean { return this.book.synced }
+  getBook(): OrderBook { return { ...this.book, bids: this.book.bids.map(x => ({ ...x })), asks: this.book.asks.map(x => ({ ...x })) } }
+  getHeatHistory(): HeatFrame[] { return this.heatHistory.map(frame => ({ ...frame, bids: frame.bids.map(x => ({ ...x })), asks: frame.asks.map(x => ({ ...x })) })) }
   reset(): void {
-    this.book = { bids: [], asks: [], ts: 0, lastUpdateId: 0 }
-    this.heatHistory = []
+    this.bidMap.clear(); this.askMap.clear(); this.heatHistory = []; this.lastHeatTs = 0
+    this.book = { bids: [], asks: [], ts: 0, lastUpdateId: 0, synced: false }
   }
 }

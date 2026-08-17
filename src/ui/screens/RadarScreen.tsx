@@ -44,11 +44,11 @@ export function RadarScreen() {
         <MeterBar label="OBI" value={metrics.obi} displayValue={metrics.obi.toFixed(2)} color="var(--green)" />
         <MeterBar label="VEL" value={metrics.velocityZ} displayValue={metrics.velocityZ.toFixed(2)} color="var(--violet)" />
         <MeterBar label="MIC" value={metrics.microDev} displayValue={metrics.microDev.toFixed(2)} color="var(--amber)" />
-        <MeterBar label="VPIN" value={metrics.vpin*2 -1} displayValue={metrics.vpin.toFixed(2)} color={metrics.vpinLabel==='Toxic'?'var(--red)':metrics.vpinLabel==='Medium'?'var(--amber)':'var(--green)'} />
-        <MeterBar label="DET" value={(metrics as any).detectorScore ?? 0} displayValue={((metrics as any).detectorScore ?? 0).toFixed(2)} color="var(--green)" />
+        <MeterBar label="VPIN" value={metrics.vpin * 2 - 1} range={1} displayValue={metrics.vpin.toFixed(2)} color={metrics.vpinLabel==='Toxic'?'var(--red)':metrics.vpinLabel==='Medium'?'var(--amber)':'var(--green)'} />
+        <MeterBar label="DET" value={metrics.detectorScore} range={1} displayValue={metrics.detectorScore.toFixed(2)} color="var(--green)" />
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)', textAlign: 'center' }}>
-        MIC microprice sapması (-1..+1) • VPIN {metrics.vpinLabel} {metrics.vpin.toFixed(2)} (Toxic &gt;0.6) • DET {(metrics as any).detectorScore?.toFixed(2) ?? '0.00'}
+        MIC microprice sapması (-1..+1) • VPIN {metrics.vpinLabel} {metrics.vpin.toFixed(2)} (Toxic ≥0.70) • DET {metrics.detectorScore.toFixed(2)} • DATA {metrics.quality.toUpperCase()}
       </div>
 
       <motion.div
@@ -87,7 +87,7 @@ export function RadarScreen() {
       </motion.div>
 
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
-        Skor: {score.toFixed(2)} • Eşik: {threshold.toFixed(2)} • CVD_z + OBI + V_z kompozit
+        Skor: {score.toFixed(2)} • Eşik: {threshold.toFixed(2)} • 6-feature kompozit • {metrics.quality} • {metrics.filterReasons[0] ?? 'gates clear'}
       </div>
     </div>
   )

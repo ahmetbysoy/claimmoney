@@ -1,6 +1,25 @@
 import type { WsAdapter, WsEvent } from '../types'
 import type { NormalizedTrade, NormalizedDepth } from '../../../types'
 
+export function crc32Signed(value: string): number {
+  let crc = 0xffffffff
+  for (let i = 0; i < value.length; i += 1) {
+    crc ^= value.charCodeAt(i)
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+  }
+  return (crc ^ 0xffffffff) | 0
+}
+
+export function okxChecksum(bids: [string, string][], asks: [string, string][]): number {
+  const parts: string[] = []
+  const levels = Math.max(Math.min(25, bids.length), Math.min(25, asks.length))
+  for (let i = 0; i < levels; i += 1) {
+    if (i < bids.length && i < 25) parts.push(bids[i][0], bids[i][1])
+    if (i < asks.length && i < 25) parts.push(asks[i][0], asks[i][1])
+  }
+  return crc32Signed(parts.join(':'))
+}
+
 /**
  * OKX WS Adapter - TR erişim garantisi için varsayılan
  * wss://ws.okx.com:8443/ws/v5/public
@@ -13,8 +32,8 @@ export class OkxAdapter implements WsAdapter {
   private symbol = 'BTC-USDT'
   private state: 'connected' | 'connecting' | 'disconnected' = 'disconnected'
   // Local book for incremental updates (action: snapshot/update)
-  private localBids: Map<string, number> = new Map()
-  private localAsks: Map<string, number> = new Map()
+  private localBids: Map<string, string> = new Map()
+  private localAsks: Map<string, string> = new Map()
   private lastChecksum: number | null = null
 
   onEvent(cb: (ev: WsEvent) => void): void {
@@ -57,6 +76,7 @@ export class OkxAdapter implements WsAdapter {
     }
 
     this.ws.onmessage = (event) => {
+      if (event.data === 'pong') { this.cb?.({ type: 'heartbeat' }); return }
       try {
         const msg = JSON.parse(event.data as string)
         if (msg.event === 'subscribe' || msg.event === 'error') return
@@ -72,7 +92,12 @@ export class OkxAdapter implements WsAdapter {
               priceStr,
               qty: parseFloat(t.sz),
               side: t.side === 'buy' ? 'buy' : 'sell',
-              ts: Number(t.ts)
+              ts: Number(t.ts),
+              tradeId: String(t.tradeId ?? ''),
+              notional: Number(priceStr) * parseFloat(t.sz),
+              exchange: 'okx',
+              symbol: this.symbol,
+              receiveTs: Date.now()
             }
             this.cb?.({ type: 'trade', data: trade })
           }
@@ -92,54 +117,70 @@ export class OkxAdapter implements WsAdapter {
               this.localAsks.clear()
               for (const [px, sz] of incomingBids) {
                 const qty = parseFloat(sz)
-                if (qty > 0) this.localBids.set(px, qty)
+                if (qty > 0) this.localBids.set(px, sz)
               }
               for (const [px, sz] of incomingAsks) {
                 const qty = parseFloat(sz)
-                if (qty > 0) this.localAsks.set(px, qty)
+                if (qty > 0) this.localAsks.set(px, sz)
               }
             } else {
               // Update: merge et (piramit'teki applyDiff mantığı gibi)
               for (const [px, sz] of incomingBids) {
                 const qty = parseFloat(sz)
                 if (qty === 0) this.localBids.delete(px)
-                else this.localBids.set(px, qty)
+                else this.localBids.set(px, sz)
               }
               for (const [px, sz] of incomingAsks) {
                 const qty = parseFloat(sz)
                 if (qty === 0) this.localAsks.delete(px)
-                else this.localAsks.set(px, qty)
+                else this.localAsks.set(px, sz)
               }
             }
 
-            // Checksum kontrolü (varsa, logla - gerçek L2 defterinde eksik/yanlış derinlik riski)
-            if (checksum && this.lastChecksum !== null && checksum !== this.lastChecksum) {
-              // Checksum mismatch -> defter bozulmuş, bir sonraki snapshot'ta düzelir
-              // İsteğe bağlı: console.warn(`OKX checksum mismatch ${checksum} != ${this.lastChecksum}`)
+            const checksumBids = Array.from(this.localBids.entries())
+              .sort((a, b) => Number(b[0]) - Number(a[0])).slice(0, 25) as [string, string][]
+            const checksumAsks = Array.from(this.localAsks.entries())
+              .sort((a, b) => Number(a[0]) - Number(b[0])).slice(0, 25) as [string, string][]
+            const remoteChecksum = Number(b.checksum ?? checksum)
+            if (Number.isFinite(remoteChecksum)) {
+              const computedChecksum = okxChecksum(checksumBids, checksumAsks)
+              if (computedChecksum !== remoteChecksum) {
+                this.localBids.clear(); this.localAsks.clear(); this.lastChecksum = null
+                this.state = 'disconnected'
+                this.cb?.({ type: 'status', status: 'disconnected', message: `OKX checksum mismatch (${computedChecksum} != ${remoteChecksum}); resyncing` })
+                this.ws?.close(4000, 'checksum mismatch')
+                return
+              }
+              this.lastChecksum = remoteChecksum
             }
-            this.lastChecksum = checksum ?? null
 
             // Local book'u sıralı NormalizedDepth'e çevir
             const sortedBids = Array.from(this.localBids.entries())
-              .map(([p, q]) => [parseFloat(p), q] as [number, number])
+              .map(([p, q]) => [parseFloat(p), parseFloat(q)] as [number, number])
               .sort((a, b) => b[0] - a[0])
               .slice(0, 50)
             const sortedAsks = Array.from(this.localAsks.entries())
-              .map(([p, q]) => [parseFloat(p), q] as [number, number])
+              .map(([p, q]) => [parseFloat(p), parseFloat(q)] as [number, number])
               .sort((a, b) => a[0] - b[0])
               .slice(0, 50)
 
             const depth: NormalizedDepth = {
               bids: sortedBids,
               asks: sortedAsks,
-              ts: Number(b.ts)
+              ts: Number(b.ts),
+              kind: 'snapshot',
+              lastSeq: Number(b.seqId ?? 0),
+              checksum,
+              exchange: 'okx',
+              symbol: this.symbol,
+              receiveTs: Date.now()
             }
             this.cb?.({ type: 'depth', data: depth })
           }
         } else if (channel === 'tickers') {
           for (const tk of msg.data) {
             const priceStr: string = tk.last
-            const mark = { price: Number(priceStr), priceStr, ts: Number(tk.ts) }
+            const mark = { price: Number(priceStr), priceStr, ts: Number(tk.ts), exchange: 'okx' as const, symbol: this.symbol, receiveTs: Date.now() }
             this.cb?.({ type: 'mark', data: mark })
             // Also treat as price update via mark
           }
@@ -156,6 +197,10 @@ export class OkxAdapter implements WsAdapter {
       this.state = 'disconnected'
       this.cb?.({ type: 'status', status: 'disconnected' })
     }
+  }
+
+  ping(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send('ping')
   }
 
   disconnect(): void {

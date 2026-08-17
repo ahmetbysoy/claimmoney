@@ -1,220 +1,160 @@
-import type { Signal } from '../../types'
+import type { FilterDecision, Signal, SignalSide, Source } from '../../types'
 
 export type EngineState = 'IDLE' | 'ARMED' | 'FIRED' | 'COOLDOWN'
-// Gelecek için: 'WAITING_CONFIRMATION' eklenecek → XState'e geçişi kolay
-// export type EngineState = 'IDLE' | 'ARMED' | 'WAITING_CONFIRMATION' | 'FIRED' | 'COOLDOWN'
+export interface Weights { w1: number; w2: number; w3: number; w4?: number; w5?: number; w6?: number }
+export interface ScoreBreakdown { cvd: number; obi: number; vel: number; micro?: number; vpin?: number; detector?: number; divergence?: number }
 
-export interface Weights {
-  w1: number
-  w2: number
-  w3: number
-  w4?: number
-  w5?: number
-  w6?: number
-}
-
-export function normalizeWeights(w: Weights): Weights {
-  const sum = (w.w1||0)+(w.w2||0)+(w.w3||0)+(w.w4||0)+(w.w5||0)+(w.w6||0)
-  if (sum === 0) return { w1: 0.30, w2: 0.18, w3: 0.13, w4: 0.16, w5: 0.10, w6: 0.13 } as Weights
-  return { w1: (w.w1||0)/sum, w2: (w.w2||0)/sum, w3: (w.w3||0)/sum, w4: (w.w4||0)/sum, w5: (w.w5||0)/sum, w6: (w.w6||0)/sum } as Weights
+const DEFAULT_WEIGHTS: Required<Weights> = { w1: 0.30, w2: 0.18, w3: 0.13, w4: 0.16, w5: 0.10, w6: 0.13 }
+export function normalizeWeights(weights: Weights): Required<Weights> {
+  const raw = [weights.w1, weights.w2, weights.w3, weights.w4 ?? 0, weights.w5 ?? 0, weights.w6 ?? 0]
+  if (raw.some(value => !Number.isFinite(value) || value < 0)) return { ...DEFAULT_WEIGHTS }
+  const sum = raw.reduce((a, b) => a + b, 0)
+  if (sum <= 0) return { ...DEFAULT_WEIGHTS }
+  return { w1: raw[0] / sum, w2: raw[1] / sum, w3: raw[2] / sum, w4: raw[3] / sum, w5: raw[4] / sum, w6: raw[5] / sum }
 }
 
 export function computeScore(
-  cvdZ: number,
-  obi: number,
-  velocityZ: number,
-  weights: Weights,
-  divergenceAdj = 0,
-  microDev: number = 0,
-  vpinAdj: number = 0,
-  detectorScore: number = 0
+  cvdZ: number, obi: number, velocityZ: number, weights: Weights, divergenceAdj = 0,
+  microDev = 0, vpinAdj = 0, detectorScore = 0
 ): number {
   const w = normalizeWeights(weights)
-  const s = (w.w1||0) * cvdZ + (w.w2||0) * obi + (w.w3||0) * velocityZ + (w.w4||0) * microDev + (w.w5||0) * vpinAdj + (w.w6||0) * detectorScore + divergenceAdj
-  return Math.max(-3, Math.min(3, s))
+  const value = w.w1 * cvdZ + w.w2 * obi + w.w3 * velocityZ + w.w4 * microDev + w.w5 * vpinAdj + w.w6 * detectorScore + divergenceAdj
+  return Math.max(-3, Math.min(3, Number.isFinite(value) ? value : 0))
 }
 
-export function computeConfidence(score: number): number {
-  return Math.min(100, Math.round((Math.abs(score) / 1.2) * 100))
+export function computeConfidence(score: number, calibratedProbability?: number | null): number {
+  if (calibratedProbability !== undefined && calibratedProbability !== null && Number.isFinite(calibratedProbability)) {
+    return Math.round(Math.max(0, Math.min(1, calibratedProbability)) * 100)
+  }
+  return Math.min(100, Math.round(Math.abs(score) / 1.2 * 100))
 }
 
 export interface EngineConfig {
-  threshold: number
-  cooldownMs: number
-  hysteresis: number
+  threshold: number; cooldownMs: number; hysteresis: number
+  confirmations?: number; minConfirmationMs?: number; maxConfirmationGapMs?: number; neutralDwellMs?: number
+}
+export interface EngineTickResult { state: EngineState; signal: Signal | null; score: number; confidence: number; reason?: string }
+export interface EngineTickParams {
+  score: number; price: number; priceStr?: string; breakdown: ScoreBreakdown; weights: Weights; ts: number
+  qualified?: boolean; filters?: FilterDecision[]; symbol?: string; exchange?: Source; frameId?: string
+  strategyVersion?: string; calibratedProbability?: number | null
 }
 
-export interface EngineTickResult {
-  state: EngineState
-  signal: Signal | null
-  score: number
-  confidence: number
-}
-
-/**
- * SignalEngine — XState tarzı finite-state-machine
- * İç içe if'ler yerine tablo-driven, her state ayrı handler.
- * Yeni state eklemek için sadece EngineState union'ına ekle + handler yaz.
- * Örn: WAITING_CONFIRMATION → handleWaitingConfirmation()
- */
 export class SignalEngine {
   state: EngineState = 'IDLE'
   private consecutive = 0
+  private consecutiveSide: SignalSide | null = null
+  private firstQualifiedAt = 0
+  private lastQualifiedAt = 0
   private lastFiredAt = 0
-  private lastFiredSide: 'BUY' | 'SELL' | null = null
+  private lastFiredSide: SignalSide | null = null
   private lastScore = 0
+  private neutralSince = 0
   private hasSeenNeutralSinceFired = true
+  private sequence = 0
+  private config: Required<EngineConfig>
 
-  constructor(private config: EngineConfig = { threshold: 0.75, cooldownMs: 18000, hysteresis: 0.35 }) {}
-
-  updateConfig(cfg: Partial<EngineConfig>) {
-    this.config = { ...this.config, ...cfg }
+  constructor(config: EngineConfig = { threshold: 0.75, cooldownMs: 18_000, hysteresis: 0.35 }) {
+    this.config = this.validated(config)
   }
 
-  // ── Helpers ────────────────────────────────────────────────
-  private sideOf(score: number): 'BUY' | 'SELL' {
-    return score > 0 ? 'BUY' : 'SELL'
-  }
-
-  private isNeutral(score: number): boolean {
-    return Math.abs(score) < this.config.hysteresis
-  }
-
-  private isBlockedByHysteresis(score: number): boolean {
-    const wouldBeSide = this.sideOf(score)
-    return !!(
-      this.lastFiredSide &&
-      wouldBeSide !== this.lastFiredSide &&
-      !this.hasSeenNeutralSinceFired &&
-      Math.abs(score) >= this.config.threshold
-    )
-  }
-
-  private trackNeutral(score: number): void {
-    if (this.isNeutral(score)) this.hasSeenNeutralSinceFired = true
-  }
-
-  private makeSignal(score: number, price: number, breakdown: any, weights: Weights, ts: number): Signal {
-    const side = this.sideOf(score)
+  private validated(config: EngineConfig): Required<EngineConfig> {
     return {
-      id: `${ts}-${side}`,
-      side,
-      price,
-      confidence: computeConfidence(score),
-      score,
-      breakdown: {
-        cvd: breakdown.cvd, obi: breakdown.obi, vel: breakdown.vel,
-        micro: breakdown.micro, vpin: breakdown.vpin, detector: (breakdown as any).detector,
-        w1: weights.w1, w2: weights.w2, w3: weights.w3, w4: (weights as any).w4, w5: (weights as any).w5, w6: (weights as any).w6
+      threshold: Math.max(0.01, config.threshold), cooldownMs: Math.max(0, config.cooldownMs),
+      hysteresis: Math.max(0, Math.min(config.threshold, config.hysteresis)), confirmations: Math.max(1, Math.round(config.confirmations ?? 2)),
+      minConfirmationMs: Math.max(0, config.minConfirmationMs ?? 0), maxConfirmationGapMs: Math.max(1, config.maxConfirmationGapMs ?? 2_000),
+      neutralDwellMs: Math.max(0, config.neutralDwellMs ?? 0)
+    }
+  }
+
+  updateConfig(config: Partial<EngineConfig>): void { this.config = this.validated({ ...this.config, ...config }) }
+  private sideOf(score: number): SignalSide { return score >= 0 ? 'BUY' : 'SELL' }
+  private isNeutral(score: number): boolean { return Math.abs(score) < this.config.hysteresis }
+
+  private resetCandidate(): void {
+    this.consecutive = 0; this.consecutiveSide = null; this.firstQualifiedAt = 0; this.lastQualifiedAt = 0
+    if (this.state === 'ARMED') this.state = 'IDLE'
+  }
+
+  private trackNeutral(score: number, ts: number): void {
+    if (!this.isNeutral(score)) { this.neutralSince = 0; return }
+    if (!this.neutralSince) this.neutralSince = ts
+    if (ts - this.neutralSince >= this.config.neutralDwellMs) this.hasSeenNeutralSinceFired = true
+  }
+
+  private makeSignal(params: EngineTickParams): Signal {
+    const side = this.sideOf(params.score)
+    return {
+      id: `${params.ts}-${side}-${++this.sequence}`, symbol: params.symbol, exchange: params.exchange,
+      side, price: params.price, priceStr: params.priceStr,
+      confidence: computeConfidence(params.score, params.calibratedProbability), calibratedProbability: params.calibratedProbability,
+      score: params.score, breakdown: {
+        cvd: params.breakdown.cvd, obi: params.breakdown.obi, vel: params.breakdown.vel,
+        micro: params.breakdown.micro, vpin: params.breakdown.vpin, detector: params.breakdown.detector,
+        divergence: params.breakdown.divergence, ...normalizeWeights(params.weights)
       },
-      ts
+      filters: params.filters, frameId: params.frameId, strategyVersion: params.strategyVersion ?? 'claimmoney-v2', ts: params.ts
     }
   }
 
-  // ── State handlers (tablo-driven) ───────────────────────
-  private handleCooldown(score: number, ts: number): { next: EngineState; result: EngineTickResult } | null {
-    if (this.state !== 'COOLDOWN') return null
-    if (ts - this.lastFiredAt >= this.config.cooldownMs) {
+  tick(params: EngineTickParams): EngineTickResult {
+    const { score, ts } = params
+    this.lastScore = score
+    this.trackNeutral(score, ts)
+    const confidence = computeConfidence(score, params.calibratedProbability)
+
+    if (this.state === 'FIRED') this.state = 'COOLDOWN'
+    if (this.state === 'COOLDOWN') {
+      if (ts - this.lastFiredAt < this.config.cooldownMs) return { state: this.state, signal: null, score, confidence, reason: 'cooldown' }
       this.state = 'IDLE'
-      this.consecutive = 0
-      this.trackNeutral(score)
-      this.lastScore = score
-      return { next: 'IDLE', result: { state: this.state, signal: null, score, confidence: computeConfidence(score) } }
-    }
-    this.trackNeutral(score)
-    this.lastScore = score
-    return { next: 'COOLDOWN', result: { state: this.state, signal: null, score, confidence: computeConfidence(score) } }
-  }
-
-  private handleFired(score: number): { next: EngineState; result: EngineTickResult } | null {
-    if (this.state !== 'FIRED') return null
-    this.state = 'COOLDOWN'
-    this.trackNeutral(score)
-    this.lastScore = score
-    return { next: 'COOLDOWN', result: { state: this.state, signal: null, score, confidence: computeConfidence(score) } }
-  }
-
-  // ── Public tick (FSM entry) ─────────────────────────────
-  tick(params: {
-    score: number
-    price: number
-    breakdown: { cvd: number; obi: number; vel: number; micro?: number; vpin?: number; detector?: number }
-    weights: Weights
-    ts: number
-  }): EngineTickResult {
-    const { score, price, breakdown, weights, ts } = params
-    const absScore = Math.abs(score)
-    const threshold = this.config.threshold
-
-    // 1. COOLDOWN
-    const cd = this.handleCooldown(score, ts)
-    if (cd) return cd.result
-
-    // 2. FIRED → COOLDOWN
-    const fd = this.handleFired(score)
-    if (fd) return fd.result
-
-    // 3. Histerezis: karşı yön blok
-    if (this.isBlockedByHysteresis(score)) {
-      if (this.isNeutral(score)) {
-        this.hasSeenNeutralSinceFired = true
-        this.consecutive = 0
-        if (this.state === 'ARMED') this.state = 'IDLE'
-        this.lastScore = score
-        return { state: this.state, signal: null, score, confidence: computeConfidence(score) }
-      }
-      this.lastScore = score
-      return { state: this.state, signal: null, score, confidence: computeConfidence(score) }
+      this.resetCandidate()
+      return { state: this.state, signal: null, score, confidence, reason: 'cooldown-ended' }
     }
 
-    // 4. Neutral takibi
-    this.trackNeutral(score)
+    if (params.qualified === false) {
+      this.resetCandidate()
+      return { state: this.state, signal: null, score, confidence, reason: 'not-qualified' }
+    }
 
-    // 5. Threshold + consecutive (IDLE → ARMED → FIRED)
-    // Gelecekte: ARMED → WAITING_CONFIRMATION → FIRED eklemek için buraya bir handler ekle
-    // Örn: if (this.state === 'ARMED' && absScore >= threshold) return this.handleWaitingConfirmation(...)
-    if (absScore >= threshold) {
-      this.consecutive += 1
-      if (this.consecutive >= 2) {
-        this.state = 'FIRED'
-        const signal = this.makeSignal(score, price, breakdown, weights, ts)
-        this.lastFiredSide = signal.side
-        this.lastFiredAt = ts
-        this.hasSeenNeutralSinceFired = false
-        this.consecutive = 0
-        this.lastScore = score
-        return { state: this.state, signal, score, confidence: signal.confidence }
-      }
-      this.state = 'ARMED'
+    if (Math.abs(score) < this.config.threshold) {
+      this.resetCandidate()
+      return { state: this.state, signal: null, score, confidence, reason: 'below-threshold' }
+    }
+
+    const side = this.sideOf(score)
+    if (this.lastFiredSide && side !== this.lastFiredSide && !this.hasSeenNeutralSinceFired) {
+      this.resetCandidate()
+      return { state: this.state, signal: null, score, confidence, reason: 'hysteresis-block' }
+    }
+
+    const gapTooLarge = this.lastQualifiedAt > 0 && ts - this.lastQualifiedAt > this.config.maxConfirmationGapMs
+    if (side !== this.consecutiveSide || gapTooLarge) {
+      this.consecutiveSide = side; this.consecutive = 1; this.firstQualifiedAt = ts
     } else {
-      this.consecutive = 0
-      if (this.state === 'ARMED') this.state = 'IDLE'
+      this.consecutive += 1
+    }
+    this.lastQualifiedAt = ts
+
+    const dwellMet = ts - this.firstQualifiedAt >= this.config.minConfirmationMs
+    if (this.consecutive < this.config.confirmations || !dwellMet) {
+      this.state = 'ARMED'
+      return { state: this.state, signal: null, score, confidence, reason: dwellMet ? 'confirming' : 'dwell' }
     }
 
-    this.lastScore = score
-    return { state: this.state, signal: null, score, confidence: computeConfidence(score) }
+    const signal = this.makeSignal(params)
+    this.state = 'FIRED'; this.lastFiredAt = ts; this.lastFiredSide = signal.side
+    this.hasSeenNeutralSinceFired = false; this.neutralSince = 0; this.resetCandidate(); this.state = 'FIRED'
+    return { state: this.state, signal, score, confidence: signal.confidence }
   }
 
-  getState(): EngineState {
-    return this.state
-  }
-
+  getState(): EngineState { return this.state }
   reset(): void {
-    this.state = 'IDLE'
-    this.consecutive = 0
-    this.lastFiredAt = 0
-    this.lastFiredSide = null
-    this.lastScore = 0
-    this.hasSeenNeutralSinceFired = true
+    this.state = 'IDLE'; this.resetCandidate(); this.lastFiredAt = 0; this.lastFiredSide = null
+    this.lastScore = 0; this.neutralSince = 0; this.hasSeenNeutralSinceFired = true; this.sequence = 0
   }
-
   _getInternal() {
-    return {
-      consecutive: this.consecutive,
-      lastFiredAt: this.lastFiredAt,
-      lastFiredSide: this.lastFiredSide,
-      lastScore: this.lastScore,
-      hasSeenNeutralSinceFired: this.hasSeenNeutralSinceFired
-    }
+    return { consecutive: this.consecutive, consecutiveSide: this.consecutiveSide, firstQualifiedAt: this.firstQualifiedAt,
+      lastFiredAt: this.lastFiredAt, lastFiredSide: this.lastFiredSide, lastScore: this.lastScore,
+      hasSeenNeutralSinceFired: this.hasSeenNeutralSinceFired }
   }
 }

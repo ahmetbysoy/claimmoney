@@ -13,6 +13,8 @@ export function ChartScreen() {
   const candleSeriesRef = useRef<any>(null)
   const histRef = useRef<any>(null)
   const flowSeriesRef = useRef<any>(null)
+  const initializedRef = useRef(false)
+  const flowInitializedRef = useRef(false)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -77,57 +79,35 @@ export function ChartScreen() {
   }, [])
 
   useEffect(() => {
-    if (!candleSeriesRef.current) return
-    if (candles.length === 0) return
-    const data = candles.map((c) => ({
-      time: c.time as any,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close
-    }))
-    candleSeriesRef.current.setData(data)
-
-    // markers for signals
-    const markers = signals
-      .filter((s) => s.ts)
-      .slice(0, 20)
-      .map((s) => ({
-        time: (Math.floor(s.ts / 1000 / 15) * 15) as any,
-        position: s.side === 'BUY' ? 'belowBar' : 'aboveBar',
-        color: s.side === 'BUY' ? '#34D399' : '#F87171',
-        shape: s.side === 'BUY' ? 'arrowUp' : 'arrowDown',
-        text: `${s.side} ${s.confidence}%`
-      }))
-    // lightweight-charts expects markers sorted by time
-    try {
-      // @ts-ignore
-      candleSeriesRef.current.setMarkers(markers.reverse())
-    } catch {}
-
-    // CVD histogram - use cvdZ as proxy? We'll map signals' CVD? For demo, use price delta
-    if (histRef.current && candles.length > 1) {
-      const histData = candles.map((c) => ({
-        time: c.time as any,
-        value: c.close - c.open,
-        color: c.close >= c.open ? 'rgba(52,211,153,0.6)' : 'rgba(248,113,113,0.6)'
-      }))
-      histRef.current.setData(histData)
+    if (!candleSeriesRef.current || candles.length === 0) return
+    const candleData = candles.map((c) => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close }))
+    const volumeDelta = candles.map((c) => {
+      const delta = (c.buyVolume ?? 0) - (c.sellVolume ?? 0)
+      return { time: c.time as any, value: delta, color: delta >= 0 ? 'rgba(52,211,153,0.6)' : 'rgba(248,113,113,0.6)' }
+    })
+    if (!initializedRef.current) {
+      candleSeriesRef.current.setData(candleData)
+      histRef.current?.setData(volumeDelta)
+      chartRef.current?.timeScale().fitContent()
+      initializedRef.current = true
+    } else {
+      candleSeriesRef.current.update(candleData[candleData.length - 1])
+      histRef.current?.update(volumeDelta[volumeDelta.length - 1])
     }
+    const markers = signals.filter(s => s.ts).slice(0, 20).map(s => ({
+      time: (Math.floor(s.ts / 1000 / 15) * 15) as any, position: s.side === 'BUY' ? 'belowBar' : 'aboveBar',
+      color: s.side === 'BUY' ? '#34D399' : '#F87171', shape: s.side === 'BUY' ? 'arrowUp' : 'arrowDown', text: `${s.side} ${s.confidence}%`
+    })).reverse()
+    candleSeriesRef.current.setMarkers(markers)
+  }, [candles, signals])
 
-    // Flow pressure histogram
-    if (flowSeriesRef.current && flowCandles.length > 0) {
-      const flowData = flowCandles.map((f) => ({
-        time: Math.floor(f.ts / 1000) as any,
-        value: f.pressureClose,
-        color: f.absorption ? 'rgba(251,191,36,0.9)' : f.pressureClose >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)'
-      }))
-      flowSeriesRef.current.setData(flowData)
-    }
-
-    chartRef.current?.timeScale().fitContent()
-    flowChartRef.current?.timeScale().fitContent()
-  }, [candles, signals, flowCandles])
+  useEffect(() => {
+    if (!flowSeriesRef.current || flowCandles.length === 0) return
+    const data = flowCandles.map(f => ({ time: Math.floor(f.ts / 1000) as any, value: f.pressureClose,
+      color: f.absorption ? 'rgba(251,191,36,0.9)' : f.pressureClose >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)' }))
+    if (!flowInitializedRef.current) { flowSeriesRef.current.setData(data); flowChartRef.current?.timeScale().fitContent(); flowInitializedRef.current = true }
+    else flowSeriesRef.current.update(data[data.length - 1])
+  }, [flowCandles])
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, padding: 16, overflow: 'auto' }}>
@@ -149,7 +129,11 @@ export function ChartScreen() {
             </div>
             {last.absorptionLevels.length > 0 && (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)', background: 'rgba(251,191,36,0.1)', padding: '6px 8px', borderRadius: 8, marginBottom: 8, border: '1px solid rgba(251,191,36,0.2)' }}>
-                ⚡ Absorption Wall: {last.absorptionLevels.map(l=> `${l.price.toFixed(2)} (${(l.sellVol/l.buyVol).toFixed(1)}x sell)`).join(' | ')}
+                ⚡ Absorption Wall: {last.absorptionLevels.map(level => {
+                  const buyDominant = level.buyVol >= level.sellVol
+                  const ratio = Math.max(level.buyVol, level.sellVol) / Math.max(1e-9, Math.min(level.buyVol, level.sellVol))
+                  return `${level.price.toFixed(2)} (${Number.isFinite(ratio) ? ratio.toFixed(1) : '∞'}x ${buyDominant ? 'buy' : 'sell'})`
+                }).join(' | ')}
               </div>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -178,7 +162,7 @@ export function ChartScreen() {
         )
       })()}
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
-        Mumlar yerel 15s toplama ile oluşturuluyor. Sinyaller ▲/▼ marker olarak işaretlenir. Alt panel CVD histogramı (yeşil/kırmızı). Flow paneli delta pressure (yeşil alım, kırmızı satım, sarı absorpsiyon).
+        Mumlar yerel 15s toplama ile oluşturuluyor. Sinyaller ▲/▼ marker olarak işaretlenir. Mum alt paneli gerçek trade buy−sell hacim deltasıdır. Flow paneli delta pressure (yeşil alım, kırmızı satım, sarı absorpsiyon).
       </div>
     </div>
   )
