@@ -31,6 +31,9 @@ export function Header({ connection, onToggleSound }: { connection: ConnectionSt
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div
+          data-testid="connection-status"
+          data-state={connection}
+          aria-live="polite"
           style={{
             display: 'flex',
             alignItems: 'center',

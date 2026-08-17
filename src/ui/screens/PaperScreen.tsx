@@ -58,7 +58,7 @@ export function PaperScreen() {
   return <div className="scrollbar-thin" style={{ padding: 14, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
     <label style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><b>PAPER EXECUTION</b><div style={muted}>Gerçek emir gönderilmez. Fee, slippage, pending fill ve partial TP simülasyonu.</div></div><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} style={{ width: 22, height: 22 }} /></label>
     <section style={card}><div style={title}>ONAYLI TRADE PLANI</div>{!plan ? <div style={muted}>Onaylı sinyal bekleniyor.</div> : <>
-      <div style={{ fontSize: 24, fontWeight: 900, color: plan.direction === 'LONG' ? 'var(--green)' : plan.direction === 'SHORT' ? 'var(--red)' : 'var(--muted)' }}>{plan.direction}</div>
+      <div data-testid="plan-direction" style={{ fontSize: 24, fontWeight: 900, color: plan.direction === 'LONG' ? 'var(--green)' : plan.direction === 'SHORT' ? 'var(--red)' : 'var(--muted)' }}>{plan.direction}</div>
       <div style={grid}><Metric label="Entry" value={fmt(plan.entry)} /><Metric label="Stop" value={fmt(plan.stop)} /><Metric label="TP1" value={fmt(plan.tp1)} /><Metric label="TP2" value={fmt(plan.tp2)} /><Metric label="Net RR" value={fmt(plan.rr)} /><Metric label="Güven" value={`${plan.confidence.toFixed(0)}%`} /></div>
       <div style={muted}>{plan.reason}</div></>}
     </section>

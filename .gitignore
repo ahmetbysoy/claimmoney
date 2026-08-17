@@ -6,4 +6,7 @@ dist
 .DS_Store
 *.tsbuildinfo
 coverage
+playwright-report
+playwright/.cache
+test-results
 *.log

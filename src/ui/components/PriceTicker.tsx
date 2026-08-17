@@ -18,6 +18,9 @@ export function PriceTicker({ price, priceStr, symbol }: { price: number; priceS
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
       <AnimatePresence mode="wait">
         <motion.div
+          data-testid="price-ticker"
+          data-price={price}
+          aria-live="polite"
           key={priceStr || price.toFixed(2)}
           initial={{ y: dir === 'up' ? -6 : 6, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}

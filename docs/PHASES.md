@@ -60,6 +60,9 @@
 - [x] Real trade-volume delta chart
 - [x] Independent sound/haptics and reduced motion
 - [x] Source-specific futures instrument catalog
+- [x] Error boundary, bounded client-error reporting and Vercel Analytics
+- [x] Desktop/mobile Playwright smoke and live production QA suites
+- [x] Health endpoint and production operations runbook
 
 ## Deliberate non-goals
 

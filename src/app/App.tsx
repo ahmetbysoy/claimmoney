@@ -10,6 +10,7 @@ import type { MarketEvent, Source } from '../types'
 import { playBuy, playDisconnect, playSell } from '../core/audio/sound'
 import { RuntimeContext } from './RuntimeContext'
 import { LocalSessionRepository } from '../performance/persistence'
+import { reportClientError } from '../observability/clientErrorReporter'
 import '../styles/global.css'
 
 const RadarScreen = lazy(() => import('../ui/screens/RadarScreen').then(module => ({ default: module.RadarScreen })))
@@ -51,6 +52,9 @@ export default function App() {
         if (event.status === 'disconnected') {
           const settings = useSettingsStore.getState()
           playDisconnect({ sound: settings.sound, haptics: false })
+          reportClientError(new Error(event.message ?? 'Unexpected WebSocket disconnect'), 'websocket.disconnect', {
+            source, symbol
+          })
         }
         return
       }
@@ -75,7 +79,7 @@ export default function App() {
   return (
     <RuntimeContext.Provider value={runtime}>
       <div className="pastel-bg"><div className="pastel-blob pastel-blob-1" /><div className="pastel-blob pastel-blob-2" /><div className="pastel-blob pastel-blob-3" /></div>
-      <div className="phone-canvas">
+      <div className="phone-canvas" data-testid="app-shell">
         <Header connection={connection} onToggleSound={() => useSettingsStore.getState().setSound(!sound)} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'transparent' }}>
           <Suspense fallback={loading}>

@@ -10,6 +10,8 @@ export function crc32Signed(value: string): number {
   return (crc ^ 0xffffffff) | 0
 }
 
+export const shouldVerifyOkxChecksum = (value: number): boolean => Number.isFinite(value) && value !== 0
+
 export function okxChecksum(bids: [string, string][], asks: [string, string][]): number {
   const parts: string[] = []
   const levels = Math.max(Math.min(25, bids.length), Math.min(25, asks.length))
@@ -142,7 +144,9 @@ export class OkxAdapter implements WsAdapter {
             const checksumAsks = Array.from(this.localAsks.entries())
               .sort((a, b) => Number(a[0]) - Number(b[0])).slice(0, 25) as [string, string][]
             const remoteChecksum = Number(b.checksum ?? checksum)
-            if (Number.isFinite(remoteChecksum)) {
+            // OKX currently emits checksum=0 on books when CRC validation is disabled for the channel.
+            // Verify every non-zero checksum; zero is an explicit "not supplied" sentinel.
+            if (shouldVerifyOkxChecksum(remoteChecksum)) {
               const computedChecksum = okxChecksum(checksumBids, checksumAsks)
               if (computedChecksum !== remoteChecksum) {
                 this.localBids.clear(); this.localAsks.clear(); this.lastChecksum = null

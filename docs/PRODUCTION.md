@@ -1,0 +1,54 @@
+# Production Operations
+
+## Endpoints
+
+- Application: <https://claimmoney-drab.vercel.app>
+- Health: <https://claimmoney-drab.vercel.app/api/health>
+- Cross-exchange quote proxy: `/api/cross-exchange`
+- Bounded client error collector: `/api/client-errors`
+
+## Automated checks
+
+```bash
+npm run typecheck
+npm test
+npm run build
+npm audit --audit-level=high
+npx playwright install --with-deps chromium
+npm run test:e2e
+npm run test:e2e:production
+```
+
+The regular browser suite runs desktop and mobile smoke checks against a local Vite server. The production suite additionally validates the health endpoint, quote proxy, OKX live WebSocket stream, live prices and Binance source switching. Production checks only run when `PRODUCTION_QA=1` is set so CI does not become dependent on exchange availability.
+
+## Observability
+
+- `@vercel/analytics` records privacy-oriented aggregate page analytics.
+- `ErrorBoundary` prevents a render failure from leaving a blank screen.
+- Global `error` and `unhandledrejection` handlers send bounded, deduplicated reports.
+- Unexpected WebSocket disconnects are reported with source and symbol context.
+- `/api/client-errors` rejects cross-site submissions, caps payloads at 16 KiB and emits sanitized structured events to Vercel logs.
+- Error messages and stacks have URL query strings removed. Session payloads, balances, recordings and localStorage values are never included.
+
+Search Vercel runtime logs for `claimmoney.client_error` or a report fingerprint. A third-party error backend can be added later if durable alerting and issue grouping are required.
+
+## Acceptance checklist
+
+- [ ] Home and `/api/health` return HTTP 200.
+- [ ] OKX reaches `connected` and emits a positive price.
+- [ ] Binance source switching reconnects successfully.
+- [ ] Radar, Chart, Signals, Microstructure, Paper and Settings chunks render.
+- [ ] Symbol normalization remounts an isolated runtime.
+- [ ] Test signal reaches the planner; a risk-rejected plan may correctly remain `NEUTRAL`.
+- [ ] Paper mode never calls an exchange order API.
+- [ ] Session JSON and market JSONL export work.
+- [ ] JSONL replay produces a report without mutating the live runtime.
+- [ ] Mobile and desktop layouts have no horizontal overflow.
+
+## OKX checksum behavior
+
+A non-zero OKX checksum is verified using the signed CRC32 top-25 bid/ask algorithm. OKX may return `checksum: 0` on `books`; zero is the exchange's current no-checksum sentinel and must not trigger a reconnect. Sequence/checksum failures with actual values force resynchronization.
+
+## Rollback
+
+Use the Vercel deployment history to promote the last known-good production deployment. Git rollback should be performed with a new revert commit on `main`; do not rewrite public history.

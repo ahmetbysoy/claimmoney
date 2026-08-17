@@ -1,6 +1,6 @@
 {
   "name": "claimmoney",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "ClaimMoney — deterministic microstructure research, signal, risk and paper-execution platform",
   "type": "module",
@@ -13,9 +13,12 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "check": "npm run typecheck && npm test && npm run build:only",
-    "build:only": "vite build"
+    "build:only": "vite build",
+    "test:e2e": "playwright test",
+    "test:e2e:production": "PRODUCTION_QA=1 PLAYWRIGHT_BASE_URL=https://claimmoney-drab.vercel.app playwright test e2e/production.spec.ts"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "canvas-confetti": "^1.9.4",
     "framer-motion": "^12.23.12",
     "lightweight-charts": "^4.2.3",
@@ -25,6 +28,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/canvas-confetti": "^1.6.4",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",

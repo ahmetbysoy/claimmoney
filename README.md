@@ -25,6 +25,8 @@ ClaimMoney is a clean repository derived from the Tierflow prototype and impleme
 - browser recording export plus isolated deterministic JSONL replay reports;
 - Radar, Chart, Signals, Microstructure diagnostics, Paper and Settings screens;
 - source-specific instrument catalogs, independent sound/haptics and reduced-motion support;
+- React error boundary, sanitized client-error reporting, Vercel Analytics and health endpoint;
+- desktop/mobile Playwright smoke and opt-in live production acceptance tests;
 - TypeScript strict check, 0-audit dependency tree, expanded regression suite and GitHub Actions CI.
 
 ## Architecture
@@ -56,6 +58,8 @@ npm run typecheck
 npm test
 npm run build
 npm audit
+npm run test:e2e
+npm run test:e2e:production
 ```
 
 ## Main modules
@@ -82,4 +86,4 @@ npm audit
 - “Confidence” remains an uncalibrated score display until enough version-matched outcomes exist; then the calibrator can provide a shrunken empirical probability.
 - Strategy feedback is stored/versioned and is not used to mutate live weights inside the same session.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/PHASES.md`](docs/PHASES.md).
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/PHASES.md`](docs/PHASES.md) and the [`docs/PRODUCTION.md`](docs/PRODUCTION.md) runbook.

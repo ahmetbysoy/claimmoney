@@ -82,13 +82,15 @@ export function SettingsScreen() {
   const total = weights.w1 + weights.w2 + weights.w3 + weights.w4 + weights.w5 + weights.w6
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 16, overflow: 'auto' }} className="scrollbar-thin">
+    <div data-testid="screen-settings" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 16, overflow: 'auto' }} className="scrollbar-thin">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <label style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: 0.5 }}>BORSA KAYNAĞI</label>
         <div style={{ display: 'flex', gap: 8 }}>
           {(['okx', 'binance'] as const).map((s) => (
             <button
               key={s}
+              data-testid={`source-${s}`}
+              aria-pressed={source === s}
               onClick={() => setSource(s)}
               style={{
                 flex: 1,
@@ -117,6 +119,8 @@ export function SettingsScreen() {
         <div style={{ position: 'relative' }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
+              data-testid="symbol-input"
+              aria-label="Futures sembolü"
               value={coinInput}
               onChange={(e) => { setCoinInput(e.target.value.toUpperCase()); setShowDropdown(true) }}
               onFocus={() => setShowDropdown(true)}
@@ -136,6 +140,7 @@ export function SettingsScreen() {
               }}
             />
             <button
+              data-testid="symbol-submit"
               onClick={handleCustomCoinSubmit}
               style={{
                 padding: '10px 16px',
@@ -266,6 +271,7 @@ export function SettingsScreen() {
 
       <div style={{ display: 'flex', gap: 8 }}>
         <button
+          data-testid="inject-buy"
           onClick={() => runtime?.injectTestSignal('BUY')}
           className="touch-target"
           style={{ flex: 1, padding: '12px', borderRadius: 12, border: '1px solid var(--green)', background: 'rgba(52,211,153,0.12)', color: 'var(--green)', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
@@ -273,6 +279,7 @@ export function SettingsScreen() {
           Test BUY Çak (880Hz)
         </button>
         <button
+          data-testid="inject-sell"
           onClick={() => runtime?.injectTestSignal('SELL')}
           className="touch-target"
           style={{ flex: 1, padding: '12px', borderRadius: 12, border: '1px solid var(--red)', background: 'rgba(248,113,113,0.12)', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
