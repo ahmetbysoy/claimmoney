@@ -1,0 +1,33 @@
+{
+  "name": "tierflow",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Signal Radar - Neon Kokpit | CVD + OBI + Velocity + Microprice + VPIN | 5-weight micro-structure + forward PnL tracker",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zustand": "^4.5.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "lightweight-charts": "^4.2.1",
+    "framer-motion": "^11.11.17",
+    "canvas-confetti": "^1.9.4",
+    "lucide-react": "^0.468.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.1",
+    "@types/canvas-confetti": "^1.6.4",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8",
+    "jsdom": "^25.0.1"
+  }
+}
