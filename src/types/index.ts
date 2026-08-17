@@ -1,7 +1,7 @@
 export type Side = 'buy' | 'sell'
 export type SignalSide = 'BUY' | 'SELL'
 export type ConnectionState = 'connected' | 'connecting' | 'disconnected' | 'resyncing' | 'degraded'
-export type TabId = 'radar' | 'chart' | 'signals' | 'microstructure' | 'paper' | 'settings'
+export type TabId = 'radar' | 'chart' | 'signals' | 'microstructure' | 'paper' | 'research' | 'settings'
 export type Source = 'okx' | 'binance'
 export type DepthKind = 'snapshot' | 'delta'
 
@@ -107,6 +107,17 @@ export interface FilterDecision {
   adjustment: number
 }
 
+export interface SignalResearchContext {
+  regime: string
+  regimeConfidence: number
+  dataQuality: DataQuality
+  detectorTypes: string[]
+  volatilityBps: number
+  vpin: number
+  spreadBps: number
+  isTest: boolean
+}
+
 export interface Signal {
   id: string
   symbol?: string
@@ -135,6 +146,7 @@ export interface Signal {
   filters?: FilterDecision[]
   frameId?: string
   strategyVersion?: string
+  research?: SignalResearchContext
   ts: number
 }
 

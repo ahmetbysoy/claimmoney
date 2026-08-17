@@ -16,23 +16,32 @@ export interface SessionRepository {
 
 export class LocalSessionRepository implements SessionRepository {
   constructor(private readonly key = 'claimmoney-sessions', private readonly maxSessions = 25) {}
-  async save(snapshot: SessionSnapshot): Promise<void> {
-    if (typeof localStorage === 'undefined') return
-    const sessions = (await this.list()).filter(item => item.sessionId !== snapshot.sessionId)
-    sessions.unshift(structuredClone(snapshot))
-    localStorage.setItem(this.key, JSON.stringify(sessions.slice(0, this.maxSessions)))
-  }
-  async list(): Promise<SessionSnapshot[]> {
+
+  listSync(): SessionSnapshot[] {
     if (typeof localStorage === 'undefined') return []
     try {
       const parsed = JSON.parse(localStorage.getItem(this.key) ?? '[]')
       return Array.isArray(parsed) ? parsed.filter(item => item?.version === 1) : []
     } catch { return [] }
   }
-  async remove(sessionId: string): Promise<void> {
-    if (typeof localStorage === 'undefined') return
-    localStorage.setItem(this.key, JSON.stringify((await this.list()).filter(item => item.sessionId !== sessionId)))
+
+  saveSync(snapshot: SessionSnapshot): boolean {
+    if (typeof localStorage === 'undefined') return true
+    let sessions = [structuredClone(snapshot), ...this.listSync().filter(item => item.sessionId !== snapshot.sessionId)].slice(0, this.maxSessions)
+    while (sessions.length) {
+      try { localStorage.setItem(this.key, JSON.stringify(sessions)); return true }
+      catch { sessions = sessions.slice(0, -1) }
+    }
+    return false
   }
+
+  removeSync(sessionId: string): void {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(this.key, JSON.stringify(this.listSync().filter(item => item.sessionId !== sessionId)))
+  }
+
+  async save(snapshot: SessionSnapshot): Promise<void> { this.saveSync(snapshot) }
+  async list(): Promise<SessionSnapshot[]> { return this.listSync() }
+  async remove(sessionId: string): Promise<void> { this.removeSync(sessionId) }
 }
 
 export function downloadText(filename: string, text: string, type = 'text/plain'): void {

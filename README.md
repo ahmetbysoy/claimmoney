@@ -6,9 +6,9 @@ Deterministic, event-time based crypto futures microstructure research and paper
 
 > **Research/education only. It is not investment advice and does not place real orders.**
 
-## What changed in v2
+## What changed in v2.1
 
-ClaimMoney is a clean repository derived from the Tierflow prototype and implements the full hardening roadmap:
+ClaimMoney is a clean repository derived from the Tierflow prototype and implements the full hardening and research-measurement roadmap:
 
 - normalized `MarketEvent` contracts with snapshot/delta and sequence metadata;
 - injectable clock, JSONL recorder/replay and deterministic feature frames;
@@ -23,7 +23,10 @@ ClaimMoney is a clean repository derived from the Tierflow prototype and impleme
 - pending paper orders, slippage, fees, partial TP1, breakeven stop and correct dollar-R accounting;
 - unbiased horizon statistics, calibration bins, session import/export and purged walk-forward utilities;
 - browser recording export plus isolated deterministic JSONL replay reports;
-- Radar, Chart, Signals, Microstructure diagnostics, Paper and Settings screens;
+- minute checkpoints into a bounded, deduplicating local research dataset;
+- regime, detector, symbol, calibration and purged walk-forward research dashboard;
+- versioned research dataset backup/import with test-signal exclusion and readiness gates;
+- Radar, Chart, Signals, Microstructure diagnostics, Paper, Research Lab and Settings screens;
 - source-specific instrument catalogs, independent sound/haptics and reduced-motion support;
 - React error boundary, sanitized client-error reporting, Vercel Analytics and health endpoint;
 - desktop/mobile Playwright smoke and opt-in live production acceptance tests;
@@ -62,6 +65,12 @@ npm run test:e2e
 npm run test:e2e:production
 ```
 
+## Research collection
+
+Open the **Lab** tab while live market data is connected. ClaimMoney checkpoints the active session and upserts mature signal outcomes every minute, plus on visibility changes and page exit. The bounded local dataset retains up to 5,000 observations and can be backed up/restored as JSON.
+
+The dashboard excludes user-injected test signals, supports 15s–15m horizons, and reports regime/detector/symbol groups, calibration gaps and purged walk-forward folds. `review-ready` requires at least 200 mature observations spanning seven days; it is a data-sufficiency gate, not evidence of profitability.
+
 ## Main modules
 
 - `src/domain/`: market contracts, validation and instrument precision
@@ -73,7 +82,7 @@ npm run test:e2e:production
 - `src/core/signal/`: score, filters, regime and FSM decision pipeline
 - `src/risk/`: approved-signal planner and position sizing
 - `src/core/paper/`: pending-order and paper execution engine
-- `src/core/performance/`, `src/performance/`: horizon metrics, calibration, persistence and walk-forward
+- `src/core/performance/`, `src/performance/`: horizon metrics, bounded research persistence, calibration, grouped reporting and walk-forward
 - `src/testing/replay/`: JSONL deterministic recorder/replay
 - `src/ui/`: lazy-loaded product and diagnostics screens
 

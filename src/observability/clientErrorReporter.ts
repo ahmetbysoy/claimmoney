@@ -47,7 +47,7 @@ export function buildClientErrorPayload(
 ): ClientErrorPayload {
   const normalized = normalize(error)
   const route = typeof location === 'undefined' ? '/' : location.pathname
-  const release = import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA || import.meta.env.VITE_APP_RELEASE || 'claimmoney-v2.0.1'
+  const release = import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA || import.meta.env.VITE_APP_RELEASE || 'claimmoney-v2.1.0'
   return {
     version: 1,
     ...normalized,

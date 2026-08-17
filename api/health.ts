@@ -5,7 +5,7 @@ export default function handler(req: Request): Response {
     status: 405, headers: { 'Content-Type': 'application/json', Allow: 'GET, HEAD' }
   })
   const body = JSON.stringify({
-    status: 'ok', service: 'claimmoney', version: '2.0.1',
+    status: 'ok', service: 'claimmoney', version: '2.1.0',
     environment: typeof process !== 'undefined' ? process.env.VERCEL_ENV ?? 'local' : 'edge',
     commit: typeof process !== 'undefined' ? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ?? null : null,
     ts: Date.now()

@@ -61,4 +61,14 @@ describe('MarketRuntime deterministic replay', () => {
     expect(first.replay.processed).toBe(recording().length)
     expect(first.frame).not.toBeNull()
   })
+
+  it('exports versioned research context and marks injected signals as test data', () => {
+    const clock = new ManualClock(5_000)
+    const runtime = new MarketRuntime({ settings: () => settings, clock, enableNetworkServices: false })
+    runtime.injectTestSignal('BUY')
+    const observations = runtime.exportResearchObservations()
+    expect(observations).toHaveLength(1)
+    expect(observations[0]).toMatchObject({ version: 1, isTest: true, regime: 'warming', dataQuality: 'warming' })
+    expect(observations[0].id).toContain(runtime.sessionId)
+  })
 })

@@ -11,6 +11,7 @@ import { playBuy, playDisconnect, playSell } from '../core/audio/sound'
 import { RuntimeContext } from './RuntimeContext'
 import { LocalSessionRepository } from '../performance/persistence'
 import { reportClientError } from '../observability/clientErrorReporter'
+import { LocalResearchRepository } from '../performance/researchRepository'
 import '../styles/global.css'
 
 const RadarScreen = lazy(() => import('../ui/screens/RadarScreen').then(module => ({ default: module.RadarScreen })))
@@ -18,6 +19,7 @@ const ChartScreen = lazy(() => import('../ui/screens/ChartScreen').then(module =
 const SignalsScreen = lazy(() => import('../ui/screens/SignalsScreen').then(module => ({ default: module.SignalsScreen })))
 const MicrostructureScreen = lazy(() => import('../ui/screens/MicrostructureScreen').then(module => ({ default: module.MicrostructureScreen })))
 const PaperScreen = lazy(() => import('../ui/screens/PaperScreen').then(module => ({ default: module.PaperScreen })))
+const ResearchScreen = lazy(() => import('../ui/screens/ResearchScreen').then(module => ({ default: module.ResearchScreen })))
 const SettingsScreen = lazy(() => import('../ui/screens/SettingsScreen').then(module => ({ default: module.SettingsScreen })))
 
 const loading = <div style={{ flex: 1, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>ClaimMoney yükleniyor…</div>
@@ -70,10 +72,25 @@ export default function App() {
     })
     manager.connect(source as Source, symbol)
 
+    const sessionRepository = new LocalSessionRepository()
+    const researchRepository = new LocalResearchRepository()
+    const checkpoint = () => {
+      if (!market.hasActivity()) return
+      sessionRepository.saveSync(market.exportSession())
+      researchRepository.upsert(market.exportResearchObservations())
+    }
+    const checkpointTimer = window.setInterval(checkpoint, 60_000)
+    const onVisibility = () => { if (document.hidden) checkpoint() }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', checkpoint)
+
     if (import.meta.env.DEV) {
       Object.assign(window, { __CLAIMMONEY_RUNTIME__: market, __DATASTORE__: useDataStore, __SETTINGS__: useSettingsStore })
     }
-    return () => { manager.dispose(); void market.saveSession(new LocalSessionRepository()); market.dispose(); setRuntime(null) }
+    return () => {
+      window.clearInterval(checkpointTimer); document.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('pagehide', checkpoint)
+      manager.dispose(); checkpoint(); market.dispose(); setRuntime(null)
+    }
   }, [source, symbol])
 
   return (
@@ -88,12 +105,13 @@ export default function App() {
             {tab === 'signals' && <SignalsScreen />}
             {tab === 'microstructure' && <MicrostructureScreen />}
             {tab === 'paper' && <PaperScreen />}
+            {tab === 'research' && <ResearchScreen />}
             {tab === 'settings' && <SettingsScreen />}
           </Suspense>
         </div>
         <TabBar />
         <div style={{ padding: '7px 12px', textAlign: 'center', fontSize: 9, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)', background: 'rgba(255,255,255,0.72)' }}>
-          ClaimMoney v2 • Araştırma ve eğitim amaçlıdır • Yatırım tavsiyesi değildir
+          ClaimMoney v2.1 • Araştırma ve eğitim amaçlıdır • Yatırım tavsiyesi değildir
         </div>
       </div>
     </RuntimeContext.Provider>

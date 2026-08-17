@@ -35,6 +35,12 @@ Feature frame
 → approved signal
 ```
 
+## Research persistence
+
+Approved signals carry immutable research context: regime, quality, active detector types, volatility, VPIN and spread. Their horizon trackers are upserted into `LocalResearchRepository` every minute and on page lifecycle transitions. The composite session/signal ID prevents checkpoint duplication, retention is capped at 5,000 observations, and quota pressure drops the oldest records first.
+
+`ResearchScreen` excludes injected test signals and computes horizon-specific grouped metrics, calibration gaps and purged walk-forward folds. Dataset JSON import/export provides browser-storage backup; no market recording or balance is uploaded.
+
 ## No automatic live learning
 
-Forward outcomes feed versioned calibration observations. They do not rewrite strategy weights during the same session. Offline evaluation should use purged walk-forward folds from `src/performance/walkForward.ts`.
+Forward outcomes feed versioned calibration observations. They do not rewrite strategy weights during the same session. Research reports remain descriptive and use purged walk-forward folds from `src/performance/walkForward.ts`; they never mutate live strategy settings.

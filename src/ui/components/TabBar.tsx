@@ -1,12 +1,13 @@
 import type { LucideIcon } from 'lucide-react'
-import { Activity, BarChart3, LineChart, List, Radar, Settings } from 'lucide-react'
+import { Activity, BarChart3, FlaskConical, LineChart, List, Radar, Settings } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import type { TabId } from '../../types'
 
 const tabs: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: 'radar', label: 'Radar', icon: Radar }, { id: 'chart', label: 'Chart', icon: LineChart },
   { id: 'signals', label: 'Sinyal', icon: List }, { id: 'microstructure', label: 'Mikro', icon: Activity },
-  { id: 'paper', label: 'Paper', icon: BarChart3 }, { id: 'settings', label: 'Ayar', icon: Settings }
+  { id: 'paper', label: 'Paper', icon: BarChart3 }, { id: 'research', label: 'Lab', icon: FlaskConical },
+  { id: 'settings', label: 'Ayar', icon: Settings }
 ]
 export function TabBar() {
   const tab = useUIStore(state => state.tab), setTab = useUIStore(state => state.setTab)

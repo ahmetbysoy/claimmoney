@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 — 2026-08-17
+
+- Added minute/page-lifecycle checkpoints into a bounded 5,000-observation local research repository.
+- Enriched approved signals with regime, quality, detector, volatility, VPIN and spread research context.
+- Added a Research Lab for horizon-specific regime, detector and symbol metrics, calibration gaps and purged walk-forward results.
+- Added dataset backup/import, test-signal exclusion and explicit 200-sample/seven-day readiness gates.
+- Added quota-aware active-session checkpoint replacement and expanded unit/browser coverage.
+
 ## 2.0.1 — 2026-08-17
 
 - Added a React error boundary, global error/rejection capture and sanitized Vercel log ingestion.

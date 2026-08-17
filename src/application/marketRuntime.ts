@@ -25,6 +25,7 @@ import { ProbabilityCalibrator } from '../performance/calibration'
 import type { SessionRepository, SessionSnapshot } from '../performance/persistence'
 import { classifyRegime, type RegimeResult } from '../core/signal/regimeClassifier'
 import { MarketRecorder } from '../testing/replay/marketReplay'
+import type { ResearchObservation } from '../performance/researchRepository'
 
 export interface RuntimeSettings {
   source: Source; symbol: string; weights: { w1: number; w2: number; w3: number; w4: number; w5: number; w6: number }
@@ -234,15 +235,29 @@ export class MarketRuntime {
   }
 
   private acceptSignal(signal: Signal): void {
-    this.signals = [signal, ...this.signals].slice(0, 500); this.tracker.addSignal(signal); this.onSignal?.(signal)
+    const activeDetectors = this.detectorRegistry.aggregate(this.price, signal.ts).active
+    const accepted: Signal = {
+      ...signal,
+      research: {
+        regime: this.regime.regime,
+        regimeConfidence: this.regime.confidence,
+        dataQuality: this.frame?.quality ?? 'warming',
+        detectorTypes: [...new Set(activeDetectors.map(item => item.type))].sort(),
+        volatilityBps: this.frame?.volatility.value ?? 0,
+        vpin: this.frame?.vpin.value ?? this.vpin.getValue(),
+        spreadBps: this.micro?.spreadBps ?? 0,
+        isTest: Boolean(signal.strategyVersion?.includes('-test'))
+      }
+    }
+    this.signals = [accepted, ...this.signals].slice(0, 500); this.tracker.addSignal(accepted); this.onSignal?.(accepted)
     const settings = this.settingsProvider()
-    this.plan = this.planner.create(signal, { spread: this.frame?.spread ?? 0,
+    this.plan = this.planner.create(accepted, { spread: this.frame?.spread ?? 0,
       volatilityBps: this.frame?.volatility.value ?? 5, walls: this.wallEntries(), instrument: this.instrument })
     const performance = this.paper.getPerformance()
     this.positionSize = this.sizer.size(this.plan, this.instrument, { trades: performance.trades, wins: performance.wins })
-    if (settings.paperTradingEnabled && this.plan.direction !== 'NEUTRAL' && this.positionSize && this.lastPlanSignalId !== signal.id) {
+    if (settings.paperTradingEnabled && this.plan.direction !== 'NEUTRAL' && this.positionSize && this.lastPlanSignalId !== accepted.id) {
       const book = this.book.getBook(), depth = [...book.bids.slice(0, 10), ...book.asks.slice(0, 10)].reduce((sum, level) => sum + level.qty, 0)
-      this.paper.submitPlan(signal.id, this.plan, this.positionSize, depth, this.price); this.lastPlanSignalId = signal.id
+      this.paper.submitPlan(accepted.id, this.plan, this.positionSize, depth, this.price); this.lastPlanSignalId = accepted.id
     }
   }
 
@@ -275,6 +290,27 @@ export class MarketRuntime {
 
   async saveSession(repository: SessionRepository): Promise<void> { await repository.save(this.exportSession()) }
   exportRecording(): string { return this.recorder.toJsonLines() }
+  hasActivity(): boolean { return this.recorder.size() > 0 || this.signals.length > 0 }
+
+  exportResearchObservations(): ResearchObservation[] {
+    const trackers = new Map(this.tracker.getAll().map(item => [item.signalId, item]))
+    return this.signals.flatMap(signal => {
+      const tracker = trackers.get(signal.id)
+      if (!tracker) return []
+      const context = signal.research
+      return [{
+        version: 1 as const,
+        id: `${this.sessionId}:${signal.id}`, sessionId: this.sessionId, signalId: signal.id,
+        symbol: signal.symbol ?? this.symbol, strategyVersion: signal.strategyVersion ?? 'claimmoney-v2',
+        side: signal.side, score: signal.score, confidence: signal.confidence, entry: tracker.entry, entryTs: tracker.entryTs,
+        regime: context?.regime ?? 'unknown', regimeConfidence: context?.regimeConfidence ?? 0,
+        dataQuality: context?.dataQuality ?? 'warming', detectorTypes: [...(context?.detectorTypes ?? [])],
+        volatilityBps: context?.volatilityBps ?? 0, vpin: context?.vpin ?? 0, spreadBps: context?.spreadBps ?? 0,
+        isTest: context?.isTest ?? Boolean(signal.strategyVersion?.includes('-test')),
+        horizons: { ...tracker.horizons }, mfe: tracker.mfe, mae: tracker.mae, closed: tracker.closed, updatedAt: this.clock.now()
+      }]
+    })
+  }
 
   injectTestSignal(side: 'BUY' | 'SELL'): Signal {
     const settings = this.settingsProvider()

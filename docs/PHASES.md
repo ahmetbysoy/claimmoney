@@ -50,6 +50,10 @@
 - [x] Versioned session persistence, JSON import and export
 - [x] Purged walk-forward folds and performance metrics
 - [x] Strategy version attached to signals/outcomes
+- [x] Minute and page-lifecycle research checkpoints
+- [x] Bounded deduplicating 5,000-observation local dataset
+- [x] Regime, detector, symbol and calibration reports
+- [x] Research dataset backup/import and readiness gates
 
 ## Phase 5 — Product
 

@@ -47,6 +47,18 @@ Verified on 2026-08-17 with the v2.0.1 desktop/mobile Playwright suites:
 - [x] Session JSON import and isolated JSONL replay/report download work.
 - [x] Mobile and desktop layouts have no horizontal overflow.
 
+## Seven-day research collection
+
+1. Keep the production app open and visible with a live exchange connection.
+2. Use naturally approved signals for measurement; injected test signals are retained for diagnostics but excluded from reports.
+3. ClaimMoney checkpoints every 60 seconds and during visibility/page lifecycle transitions.
+4. Open **Lab** to inspect 15s, 30s, 60s, 5m and 15m maturity coverage.
+5. Export the research dataset daily and retain backups outside browser storage.
+6. Do not interpret results before the dashboard reaches at least 200 mature observations over seven days.
+7. Review expectancy, median, drawdown, calibration gaps and purged walk-forward folds together; never select a detector using win rate alone.
+
+Storage is origin-local and bounded to 5,000 observations. Clearing browser data removes the active dataset unless a JSON backup is restored.
+
 ## OKX checksum behavior
 
 A non-zero OKX checksum is verified using the signed CRC32 top-25 bid/ask algorithm. OKX may return `checksum: 0` on `books`; zero is the exchange's current no-checksum sentinel and must not trigger a reconnect. Sequence/checksum failures with actual values force resynchronization.

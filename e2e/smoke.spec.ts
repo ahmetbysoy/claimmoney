@@ -9,7 +9,7 @@ test('loads the shell and navigates every lazy screen', async ({ page }) => {
   await expect(page).toHaveTitle(/ClaimMoney/)
   await expect(page.getByTestId('app-shell')).toBeVisible()
 
-  for (const tab of ['chart', 'signals', 'microstructure', 'paper', 'settings', 'radar']) {
+  for (const tab of ['chart', 'signals', 'microstructure', 'paper', 'research', 'settings', 'radar']) {
     const button = page.getByTestId(`tab-${tab}`)
     await button.click()
     await expect(button).toHaveAttribute('aria-current', 'page')
@@ -66,4 +66,14 @@ test('exports sessions and imports both session JSON and replay JSONL', async ({
   })
   expect((await replayDownload).suggestedFilename()).toMatch(/claimmoney-replay-.*\.json/)
   await expect(page.getByText(/Replay tamamlandı: 2 işlendi, 0 reddedildi/)).toBeVisible()
+
+  await page.getByTestId('tab-research').click()
+  await expect(page.getByTestId('screen-research')).toBeVisible()
+  const datasetDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Dataset dışa aktar' }).click()
+  expect((await datasetDownload).suggestedFilename()).toMatch(/claimmoney-research-.*\.json/)
+  await page.getByTestId('research-import-input').setInputFiles({
+    name: 'dataset.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ version: 1, observations: [] }))
+  })
+  await expect(page.getByText(/0 gözlem içe aktarıldı/)).toBeVisible()
 })
