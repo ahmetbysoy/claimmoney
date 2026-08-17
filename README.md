@@ -2,6 +2,8 @@
 
 Deterministic, event-time based crypto futures microstructure research and paper-execution platform.
 
+**Live:** [claimmoney-drab.vercel.app](https://claimmoney-drab.vercel.app)
+
 > **Research/education only. It is not investment advice and does not place real orders.**
 
 ## What changed in v2
