@@ -34,16 +34,18 @@ Search Vercel runtime logs for `claimmoney.client_error` or a report fingerprint
 
 ## Acceptance checklist
 
-- [ ] Home and `/api/health` return HTTP 200.
-- [ ] OKX reaches `connected` and emits a positive price.
-- [ ] Binance source switching reconnects successfully.
-- [ ] Radar, Chart, Signals, Microstructure, Paper and Settings chunks render.
-- [ ] Symbol normalization remounts an isolated runtime.
-- [ ] Test signal reaches the planner; a risk-rejected plan may correctly remain `NEUTRAL`.
-- [ ] Paper mode never calls an exchange order API.
-- [ ] Session JSON and market JSONL export work.
-- [ ] JSONL replay produces a report without mutating the live runtime.
-- [ ] Mobile and desktop layouts have no horizontal overflow.
+Verified on 2026-08-17 with the v2.0.1 desktop/mobile Playwright suites:
+
+- [x] Home and `/api/health` return HTTP 200.
+- [x] OKX reaches `connected` and emits a positive price.
+- [x] Binance source switching reconnects successfully.
+- [x] Radar, Chart, Signals, Microstructure, Paper and Settings chunks render.
+- [x] Symbol normalization remounts an isolated runtime.
+- [x] Test signal reaches the planner; a risk-rejected plan may correctly remain `NEUTRAL`.
+- [x] Paper mode has no exchange-order API or execution adapter.
+- [x] Session JSON and market JSONL export work.
+- [x] Session JSON import and isolated JSONL replay/report download work.
+- [x] Mobile and desktop layouts have no horizontal overflow.
 
 ## OKX checksum behavior
 

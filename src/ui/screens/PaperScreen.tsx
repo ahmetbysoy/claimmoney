@@ -68,7 +68,7 @@ export function PaperScreen() {
         <button onClick={() => runtime && downloadJson(`claimmoney-${Date.now()}.json`, runtime.exportSession())} style={button}>Oturum JSON</button>
         <button onClick={() => runtime && downloadText(`claimmoney-events-${Date.now()}.jsonl`, runtime.exportRecording(), 'application/x-ndjson')} style={button}>Kayıt JSONL</button>
         <button onClick={() => fileInput.current?.click()} style={button}>İçe aktar / replay</button>
-        <input ref={fileInput} type="file" accept=".json,.jsonl,application/json,application/x-ndjson" hidden onChange={importFile} />
+        <input ref={fileInput} data-testid="import-replay-input" type="file" accept=".json,.jsonl,application/json,application/x-ndjson" hidden onChange={importFile} />
       </div></div>
       {importStatus && <div style={{ ...muted, color: importStatus.includes('hatası') ? 'var(--red)' : 'var(--green)' }}>{importStatus}</div>}
       <div style={grid}><Metric label="Trades" value={String(performance.trades)} /><Metric label="Win rate" value={`${performance.trades ? (performance.wins / performance.trades * 100).toFixed(0) : 0}%`} /><Metric label="Net PnL" value={`$${fmt(performance.netPnl)}`} /><Metric label="Net R" value={fmt(performance.netR)} /><Metric label="Profit factor" value={fmt(performance.pf)} /><Metric label="Max DD" value={`${fmt(performance.maxDD)}%`} /><Metric label="Sharpe" value={fmt(performance.sharpe)} /><Metric label="Fees" value={`$${fmt(performance.feesPaid)}`} /></div>
