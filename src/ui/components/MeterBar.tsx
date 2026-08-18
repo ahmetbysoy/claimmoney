@@ -1,13 +1,30 @@
-type Props = { label: string; value: number; displayValue?: string; color: string; range?: number }
-export function MeterBar({ label, value, displayValue, color, range = 2 }: Props) {
-  const normalized = Math.max(-1, Math.min(1, value / range)), magnitude = Math.abs(normalized) * 50
-  const positive = value > .05, negative = value < -.05
-  return <div style={{ flex: 1, minWidth: 42, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-    <div role="meter" aria-label={label} aria-valuenow={value} style={{ width: 40, height: 112, background: 'rgba(255,255,255,.9)', borderRadius: 14, border: '1px solid var(--border-soft)', position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', height: 1, background: 'rgba(124,141,176,.35)', zIndex: 2 }} />
-      <div style={{ position: 'absolute', left: 4, right: 4, height: `${magnitude}%`, top: positive ? `${50 - magnitude}%` : '50%', background: positive ? color : negative ? 'var(--red)' : 'var(--purple-soft)', borderRadius: 8, transition: 'height .2s, top .2s', boxShadow: Math.abs(normalized) > .5 ? `0 0 10px ${positive ? color : 'var(--red)'}` : 'none' }} />
-    </div>
-    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)' }}>{label}</div>
-    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 800, color: positive ? color : negative ? 'var(--red)' : 'var(--text)' }}>{displayValue ?? value.toFixed(2)}</div>
-  </div>
+interface Props {
+  label: string
+  value: number
+  min?: number
+  max?: number
+  format?: (v: number) => string
+  onClick?: () => void
+}
+
+export function MeterBar({ label, value, min = -1, max = 1, format, onClick }: Props) {
+  const safeValue = Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : 0
+  const normalized = ((safeValue - min) / (max - min)) * 100
+  const tone = safeValue > 0.08 ? 'buy' : safeValue < -0.08 ? 'sell' : 'neutral'
+  const Tag = onClick ? 'button' : 'div'
+  const output = format ? format(safeValue) : safeValue.toFixed(2)
+  const bipolar = min < 0 && max > 0
+
+  return (
+    <Tag className="metric-tile" data-tone={tone} {...(onClick ? { type: 'button' as const, onClick } : {})}>
+      <span className="metric-tile__top"><span className="metric-tile__label">{label}</span><span className="metric-tile__value">{output}</span></span>
+      {bipolar ? (
+        <span className="metric-axis" role="img" aria-label={`${label}: ${output}`}>
+          <progress className="metric-axis__negative" value={Math.max(0, -safeValue)} max={Math.abs(min)} aria-hidden="true" />
+          <progress className="metric-axis__positive" value={Math.max(0, safeValue)} max={max} aria-hidden="true" />
+        </span>
+      ) : <progress value={normalized} max="100" aria-label={`${label}: ${output}`} />}
+      <span className="metric-tile__scale"><span>{min}</span><span>{max}</span></span>
+    </Tag>
+  )
 }

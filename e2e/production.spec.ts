@@ -29,6 +29,7 @@ test('production health, API and live OKX stream are operational', async ({ page
 
 test('production can switch source and preserve the responsive shell', async ({ page }) => {
   await page.goto('/')
+  await page.getByTestId('tab-more').click()
   await page.getByTestId('tab-settings').click()
   await page.getByTestId('source-binance').click()
   await expect(page.getByTestId('source-binance')).toHaveAttribute('aria-pressed', 'true')

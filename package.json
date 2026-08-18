@@ -19,8 +19,6 @@
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
-    "canvas-confetti": "^1.9.4",
-    "framer-motion": "^12.23.12",
     "lightweight-charts": "^4.2.3",
     "lucide-react": "^0.468.0",
     "react": "^19.1.1",
@@ -29,7 +27,6 @@
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
-    "@types/canvas-confetti": "^1.6.4",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",

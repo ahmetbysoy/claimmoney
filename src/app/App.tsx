@@ -6,7 +6,7 @@ import { useSettingsStore } from '../store/settingsStore'
 import { useDataStore } from '../store/dataStore'
 import { WsManager } from '../core/ws/wsManager'
 import { MarketRuntime } from '../application/marketRuntime'
-import type { MarketEvent, Source } from '../types'
+import type { Source } from '../types'
 import { playBuy, playDisconnect, playSell } from '../core/audio/sound'
 import { RuntimeContext } from './RuntimeContext'
 import { LocalSessionRepository } from '../performance/persistence'
@@ -22,14 +22,19 @@ const PaperScreen = lazy(() => import('../ui/screens/PaperScreen').then(module =
 const ResearchScreen = lazy(() => import('../ui/screens/ResearchScreen').then(module => ({ default: module.ResearchScreen })))
 const SettingsScreen = lazy(() => import('../ui/screens/SettingsScreen').then(module => ({ default: module.SettingsScreen })))
 
-const loading = <div style={{ flex: 1, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>ClaimMoney yükleniyor…</div>
+function LoadingFallback() {
+  return (
+    <div className="loading-state" role="status" aria-live="polite">
+      <div><div className="loading-bars" aria-hidden="true"><span /><span /><span /><span /></div><p>Görünüm hazırlanıyor…</p></div>
+    </div>
+  )
+}
 
 export default function App() {
   const tab = useUIStore(state => state.tab)
   const source = useSettingsStore(state => state.source)
   const symbol = useSettingsStore(state => state.symbol)
-  const sound = useSettingsStore(state => state.sound)
-  const haptics = useSettingsStore(state => state.haptics)
+  const reducedMotion = useSettingsStore(state => state.reducedMotion)
   const [connection, setConnection] = useState<'connected' | 'connecting' | 'disconnected'>('connecting')
   const [runtime, setRuntime] = useState<MarketRuntime | null>(null)
 
@@ -47,14 +52,13 @@ export default function App() {
         window.dispatchEvent(new CustomEvent('signal-fired', { detail: signal }))
       }
     })
-    setRuntime(market); market.start()
+    setRuntime(market)
+    market.start()
 
     manager = new WsManager(event => {
       if ('type' in event) {
         if (event.type === 'diagnostic') {
-          reportClientError(new Error(event.message), `websocket.${event.code}`, {
-            source: event.source, symbol, droppedMessages: event.droppedMessages
-          })
+          reportClientError(new Error(event.message), `websocket.${event.code}`, { source: event.source, symbol, droppedMessages: event.droppedMessages })
           return
         }
         const visibleState = event.status === 'connected' || event.status === 'connecting' ? event.status : 'disconnected'
@@ -62,9 +66,7 @@ export default function App() {
         if (event.status === 'disconnected') {
           const settings = useSettingsStore.getState()
           playDisconnect({ sound: settings.sound, haptics: false })
-          reportClientError(new Error(event.message ?? 'Unexpected WebSocket disconnect'), 'websocket.disconnect', {
-            source: event.source, symbol
-          })
+          reportClientError(new Error(event.message ?? 'Unexpected WebSocket disconnect'), 'websocket.disconnect', { source: event.source, symbol })
         }
         return
       }
@@ -84,22 +86,24 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pagehide', checkpoint)
 
-    if (import.meta.env.DEV) {
-      Object.assign(window, { __CLAIMMONEY_RUNTIME__: market, __DATASTORE__: useDataStore, __SETTINGS__: useSettingsStore })
-    }
+    if (import.meta.env.DEV) Object.assign(window, { __CLAIMMONEY_RUNTIME__: market, __DATASTORE__: useDataStore, __SETTINGS__: useSettingsStore })
     return () => {
-      window.clearInterval(checkpointTimer); document.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('pagehide', checkpoint)
-      manager?.dispose(); checkpoint(); market.dispose(); setRuntime(null)
+      window.clearInterval(checkpointTimer)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', checkpoint)
+      manager?.dispose()
+      checkpoint()
+      market.dispose()
+      setRuntime(null)
     }
   }, [source, symbol])
 
   return (
     <RuntimeContext.Provider value={runtime}>
-      <div className="pastel-bg"><div className="pastel-blob pastel-blob-1" /><div className="pastel-blob pastel-blob-2" /><div className="pastel-blob pastel-blob-3" /></div>
-      <div className="phone-canvas" data-testid="app-shell">
-        <Header connection={connection} onToggleSound={() => useSettingsStore.getState().setSound(!sound)} />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'transparent' }}>
-          <Suspense fallback={loading}>
+      <div className="app-shell" data-testid="app-shell" data-reduced-motion={reducedMotion}>
+        <Header connection={connection} source={source.toUpperCase()} symbol={symbol} />
+        <main className="app-main" id="main-content">
+          <Suspense fallback={<LoadingFallback />}>
             {tab === 'radar' && <RadarScreen />}
             {tab === 'chart' && <ChartScreen />}
             {tab === 'signals' && <SignalsScreen />}
@@ -108,11 +112,9 @@ export default function App() {
             {tab === 'research' && <ResearchScreen />}
             {tab === 'settings' && <SettingsScreen />}
           </Suspense>
-        </div>
+        </main>
+        <div className="app-footer-note" role="note">Araştırma ve kâğıt işlem simülasyonu. Finansal tavsiye değildir.</div>
         <TabBar />
-        <div style={{ padding: '7px 12px', textAlign: 'center', fontSize: 9, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)', background: 'rgba(255,255,255,0.72)' }}>
-          ClaimMoney v2.1 • Araştırma ve eğitim amaçlıdır • Yatırım tavsiyesi değildir
-        </div>
       </div>
     </RuntimeContext.Provider>
   )

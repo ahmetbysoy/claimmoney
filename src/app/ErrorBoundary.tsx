@@ -10,23 +10,21 @@ export class ErrorBoundary extends Component<Props, State> {
   static getDerivedStateFromError(error: Error): State { return { error } }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    reportClientError(error, 'react.error-boundary', {
-      componentStack: info.componentStack ? info.componentStack.slice(0, 1_500) : ''
-    })
+    reportClientError(error, 'react.error-boundary', { componentStack: info.componentStack ? info.componentStack.slice(0, 1_500) : '' })
   }
 
   render() {
     if (!this.state.error) return this.props.children
-    return <main data-testid="app-error-boundary" role="alert" style={{
-      minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: 24,
-      background: '#fff7fb', color: '#31243a', fontFamily: 'system-ui, sans-serif'
-    }}>
-      <section style={{ width: 'min(480px, 100%)', padding: 24, borderRadius: 20, background: 'white', border: '1px solid #eaddec', boxShadow: '0 18px 50px rgba(77, 39, 89, .12)' }}>
-        <div style={{ fontSize: 32 }}>🛟</div>
-        <h1 style={{ marginBottom: 8 }}>ClaimMoney güvenli moda geçti</h1>
-        <p style={{ lineHeight: 1.5, color: '#6f6275' }}>Beklenmeyen arayüz hatası kaydedildi. Açık paper emirler gerçek emir değildir ve hiçbir borsaya gönderilmez.</p>
-        <button onClick={() => window.location.reload()} style={{ width: '100%', marginTop: 12, padding: 12, border: 0, borderRadius: 12, background: '#7c3aed', color: 'white', fontWeight: 700, cursor: 'pointer' }}>Uygulamayı yeniden yükle</button>
-      </section>
-    </main>
+    return (
+      <main data-testid="app-error-boundary" role="alert" className="error-page">
+        <section className="panel error-card">
+          <div className="error-card__mark" aria-hidden="true">!</div>
+          <p className="eyebrow">Arayüz koruması</p>
+          <h1>ClaimMoney güvenli moda geçti</h1>
+          <p>Beklenmeyen arayüz hatası kaydedildi. Açık kâğıt emirler gerçek emir değildir ve hiçbir borsaya gönderilmez.</p>
+          <button type="button" className="button button--primary" onClick={() => window.location.reload()}>Uygulamayı yeniden yükle</button>
+        </section>
+      </main>
+    )
   }
 }

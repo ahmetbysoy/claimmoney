@@ -1,37 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 
-export function PriceTicker({ price, priceStr, symbol }: { price: number; priceStr: string; symbol: string }) {
-  const prev = useRef(price)
-  const [dir, setDir] = useState<'up' | 'down' | 'flat'>('flat')
+interface Props { price: number; symbol: string }
+
+export function PriceTicker({ price, symbol }: Props) {
+  const previous = useRef(price)
+  const [direction, setDirection] = useState<'up' | 'down' | 'flat'>('flat')
 
   useEffect(() => {
-    if (price > prev.current) setDir('up')
-    else if (price < prev.current) setDir('down')
-    else setDir('flat')
-    prev.current = price
+    setDirection(price > previous.current ? 'up' : price < previous.current ? 'down' : 'flat')
+    previous.current = price
   }, [price])
 
-  const color = dir === 'up' ? 'var(--green)' : dir === 'down' ? 'var(--red)' : 'var(--cyan)'
+  const formatted = Number.isFinite(price)
+    ? price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '—'
 
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-      <AnimatePresence mode="wait">
-        <motion.div
-          data-testid="price-ticker"
-          data-price={price}
-          aria-live="polite"
-          key={priceStr || price.toFixed(2)}
-          initial={{ y: dir === 'up' ? -6 : 6, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: dir === 'up' ? 6 : -6, opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 18, color, letterSpacing: -0.5 }}
-        >
-          ${priceStr || (price ? String(price) : '--')}
-        </motion.div>
-      </AnimatePresence>
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{symbol}</span>
+    <div className="price-ticker">
+      <span className="price-ticker__symbol">{symbol}</span>
+      <span className="price-ticker__price" data-testid="price-ticker" data-price={price} data-direction={direction} aria-label={`${symbol} fiyatı ${formatted}`}>
+        {formatted}
+      </span>
     </div>
   )
 }

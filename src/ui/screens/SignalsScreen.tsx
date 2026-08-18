@@ -1,145 +1,60 @@
+import { useMemo, useState } from 'react'
 import { useDataStore } from '../../store/dataStore'
-import { motion } from 'framer-motion'
 
-function fmtPct(v: number | null | undefined): string {
-  if (v === null || v === undefined) return '…'
-  const sign = v > 0 ? '+' : ''
-  return `${sign}${v.toFixed(2)}%`
-}
+const fmtPct = (value: number | null | undefined) => value == null ? '…' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
 
 function HorizonBadge({ label, value }: { label: string; value: number | null }) {
-  const isNull = value === null
-  const isPos = !isNull && value! > 0.02
-  const isNeg = !isNull && value! < -0.02
-  const color = isNull ? 'var(--muted)' : isPos ? 'var(--green)' : isNeg ? 'var(--red)' : 'var(--muted)'
-  const bg = isNull ? 'var(--surface-2)' : isPos ? 'rgba(52,211,153,0.12)' : isNeg ? 'rgba(248,113,113,0.12)' : 'var(--surface-2)'
-  return (
-    <span style={{
-      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
-      color, background: bg, padding: '3px 6px', borderRadius: 6, border: `1px solid ${isNull ? 'var(--border)' : isPos ? 'rgba(52,211,153,0.2)' : isNeg ? 'rgba(248,113,113,0.2)' : 'var(--border)'}`
-    }}>
-      {label}: {fmtPct(value)}
-    </span>
-  )
+  const tone = value == null ? 'neutral' : value > 0.02 ? 'buy' : value < -0.02 ? 'sell' : 'neutral'
+  return <span className={`status-badge status-badge--${tone}`}>{label}: {fmtPct(value)}</span>
 }
 
 export function SignalsScreen() {
-  const signals = useDataStore((s) => s.signals)
-  const trackers = useDataStore((s) => s.trackers)
-  const stats = useDataStore((s) => s.stats)
-
-  const trackerMap = new Map(trackers.map(t => [t.signalId, t]))
-
-  if (signals.length === 0) {
-    return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 }}>
-        <div style={{ width: 120, height: 120, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ width: 80, height: 80, borderRadius: '50%', border: '1px solid rgba(34,211,238,0.2)', animation: 'pulse 2s infinite' }} />
-          <div style={{ position: 'absolute', width: 2, height: 60, background: 'linear-gradient(to top, transparent, var(--cyan))', transformOrigin: 'bottom center', animation: 'spin 3s linear infinite', top: 0, left: '50%' }} />
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--text)' }}>Henüz sinyal yok — radar tarıyor...</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Kompozit skor eşik üstüne çıktığında burada listelenecek</div>
-        </div>
-        <style>{`@keyframes spin{to{transform:translateX(-50%) rotate(360deg)}} @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.05);opacity:0.7}}`}</style>
-      </div>
-    )
-  }
+  const signals = useDataStore(state => state.signals)
+  const trackers = useDataStore(state => state.trackers)
+  const stats = useDataStore(state => state.stats)
+  const [filter, setFilter] = useState<'ALL' | 'BUY' | 'SELL'>('ALL')
+  const trackerMap = useMemo(() => new Map(trackers.map(tracker => [tracker.signalId, tracker])), [trackers])
+  const visible = filter === 'ALL' ? signals : signals.filter(signal => signal.side === filter)
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, padding: 16, overflow: 'auto' }} className="scrollbar-thin">
-      {/* Stats header */}
-      <div style={{ padding: 10, borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: 0.5, display: 'flex', justifyContent: 'space-between' }}>
-          <span>SON {stats.count} SİNYAL • {signals.length} toplam</span>
-          <span style={{ color: stats.count > 0 && stats.win60s >= 0.55 ? 'var(--green)' : stats.count > 0 && stats.win60s < 0.45 ? 'var(--red)' : 'var(--muted)' }}>
-            Win 60s: {(stats.win60s*100).toFixed(0)}%
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-          <span style={{ color: 'var(--muted)' }}>15s: <b style={{ color: stats.avg15s>=0?'var(--green)':'var(--red)' }}>{fmtPct(stats.avg15s)}</b> ({(stats.win15s*100).toFixed(0)}%)</span>
-          <span style={{ color: 'var(--muted)' }}>60s: <b style={{ color: stats.avg60s>=0?'var(--green)':'var(--red)' }}>{fmtPct(stats.avg60s)}</b> ({(stats.win60s*100).toFixed(0)}%)</span>
-          <span style={{ color: 'var(--muted)' }}>5m: <b style={{ color: stats.avg300s>=0?'var(--green)':'var(--red)' }}>{fmtPct(stats.avg300s)}</b> ({(stats.win300s*100).toFixed(0)}%)</span>
-          <span style={{ color: 'var(--muted)' }}>MFE <b style={{ color: 'var(--green)' }}>{fmtPct(stats.avgMfe)}</b> / MAE <b style={{ color: 'var(--red)' }}>{fmtPct(stats.avgMae)}</b></span>
-        </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)', opacity: 0.7 }}>
-          Canlı: her sinyalin giriş fiyatından itibaren forward return. MFE/MAE en iyi/kötü an.
-        </div>
+    <section className="screen" data-testid="screen-signals">
+      <div className="screen-heading">
+        <div className="screen-heading__copy"><p className="eyebrow">Olay günlüğü</p><h1>Sinyaller</h1><p className="screen-heading__description">Teyitli yön değişimleri ve olgunlaşan forward-return ölçümleri.</p></div>
+        <span className="status-badge">{signals.length} kayıt</span>
       </div>
 
-      {signals.map((s) => {
-        const tr = trackerMap.get(s.id)
-        return (
-          <motion.div
-            key={s.id}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            style={{
-              padding: 12,
-              borderRadius: 12,
-              background: s.side === 'BUY' ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
-              border: `1px solid ${s.side === 'BUY' ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)'}`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontWeight: 800,
-                  fontSize: 12,
-                  color: s.side === 'BUY' ? 'var(--green)' : 'var(--red)',
-                  background: s.side === 'BUY' ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)',
-                  padding: '4px 8px',
-                  borderRadius: 999
-                }}
-              >
-                {s.side}
-              </span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{new Date(s.ts).toLocaleTimeString()}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              <span style={{ color: 'var(--text)' }}>${s.priceStr || s.price}</span>
-              <span style={{ color: 'var(--muted)' }}>Skor {s.score.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ flex: 1, height: 6, background: 'var(--surface-2)', borderRadius: 999, overflow: 'hidden' }}>
-                <div style={{ width: `${s.confidence}%`, height: '100%', background: s.side === 'BUY' ? 'var(--green)' : 'var(--red)', borderRadius: 999 }} />
-              </div>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)', fontWeight: 700 }}>{s.confidence}% {s.calibratedProbability == null ? 'güç' : 'olasılık'}</span>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', display: 'flex', gap: 8 }}>
-              <span>CVD {s.breakdown.cvd.toFixed(2)}</span>
-              <span>•</span>
-              <span>OBI {s.breakdown.obi.toFixed(2)}</span>
-              <span>•</span>
-              <span>VEL {s.breakdown.vel.toFixed(2)}</span>
-            </div>
+      <div className="signal-summary-grid">
+        <div className="panel panel--flat summary-stat"><span className="eyebrow">Olgun örnek</span><strong className="numeric">{stats.count}</strong></div>
+        <div className="panel panel--flat summary-stat"><span className="eyebrow">60s win</span><strong className="numeric">{(stats.win60s * 100).toFixed(0)}%</strong></div>
+        <div className="panel panel--flat summary-stat"><span className="eyebrow">60s ort.</span><strong className={`numeric ${stats.avg60s >= 0 ? 'text-buy' : 'text-sell'}`}>{fmtPct(stats.avg60s)}</strong></div>
+        <div className="panel panel--flat summary-stat"><span className="eyebrow">MFE / MAE</span><strong className="numeric"><span className="text-buy">{fmtPct(stats.avgMfe)}</span> / <span className="text-sell">{fmtPct(stats.avgMae)}</span></strong></div>
+      </div>
 
-            {/* Forward return tracker */}
-            {tr ? (
-              <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <HorizonBadge label="15s" value={tr.horizons['15s']} />
-                  <HorizonBadge label="30s" value={tr.horizons['30s']} />
-                  <HorizonBadge label="60s" value={tr.horizons['60s']} />
-                  <HorizonBadge label="5m" value={tr.horizons['300s']} />
-                  <HorizonBadge label="15m" value={tr.horizons['900s']} />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
-                  <span>Canlı: <b style={{ color: tr.live>=0?'var(--green)':'var(--red)' }}>{fmtPct(tr.live)}</b></span>
-                  <span>MFE: <b style={{ color: 'var(--green)' }}>{fmtPct(tr.mfe)}</b> / MAE: <b style={{ color: 'var(--red)' }}>{fmtPct(tr.mae)}</b></span>
-                  <span style={{ opacity: 0.7 }}>{tr.closed ? 'kapatıldı' : 'takipte'}</span>
-                </div>
-              </div>
-            ) : (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', opacity: 0.6 }}>Takip başlatılıyor...</div>
-            )}
-          </motion.div>
-        )
-      })}
-    </div>
+      <div className="panel signal-log">
+        <div className="panel__header signal-log__toolbar">
+          <div className="segmented" aria-label="Sinyal yönü filtresi">
+            {(['ALL', 'BUY', 'SELL'] as const).map(value => <button key={value} type="button" className="segmented__button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === 'ALL' ? 'Tümü' : value === 'BUY' ? 'Alım' : 'Satım'}</button>)}
+          </div>
+          <span className="text-muted">{visible.length} sonuç</span>
+        </div>
+
+        {visible.length === 0 ? <div className="empty-state"><div><h2>Bu filtrede sinyal yok</h2><p className="text-secondary">Bileşik skor eşik ve kalite filtrelerini geçtiğinde burada listelenir.</p></div></div> : (
+          <div className="signal-list" role="list">
+            {visible.map(signal => {
+              const tracker = trackerMap.get(signal.id)
+              const tone = signal.side === 'BUY' ? 'buy' : 'sell'
+              return <article key={signal.id} className="signal-card" data-tone={tone} role="listitem">
+                <div className="signal-card__header"><span className={`status-badge status-badge--${tone}`}>{signal.side === 'BUY' ? 'ALIM' : 'SATIM'}</span><time className="mono" dateTime={new Date(signal.ts).toISOString()}>{new Date(signal.ts).toLocaleString('tr-TR')}</time></div>
+                <div className="signal-card__core"><div><span className="eyebrow">Fiyat</span><strong className="numeric">{signal.priceStr || signal.price}</strong></div><div><span className="eyebrow">Skor</span><strong className="numeric">{signal.score.toFixed(2)}</strong></div><div><span className="eyebrow">Güç</span><strong className="numeric">{signal.confidence}%</strong></div></div>
+                <progress className="confidence-progress" value={signal.confidence} max="100" aria-label={`Sinyal gücü yüzde ${signal.confidence}`} />
+                <div className="signal-breakdown"><span>CVD {signal.breakdown.cvd.toFixed(2)}</span><span>OBI {signal.breakdown.obi.toFixed(2)}</span><span>VEL {signal.breakdown.vel.toFixed(2)}</span></div>
+                {tracker ? <div className="tracker-block"><div className="tracker-horizons"><HorizonBadge label="15s" value={tracker.horizons['15s']} /><HorizonBadge label="30s" value={tracker.horizons['30s']} /><HorizonBadge label="60s" value={tracker.horizons['60s']} /><HorizonBadge label="5m" value={tracker.horizons['300s']} /><HorizonBadge label="15m" value={tracker.horizons['900s']} /></div><div className="tracker-live"><span>Canlı <b className={tracker.live >= 0 ? 'text-buy' : 'text-sell'}>{fmtPct(tracker.live)}</b></span><span>MFE <b className="text-buy">{fmtPct(tracker.mfe)}</b></span><span>MAE <b className="text-sell">{fmtPct(tracker.mae)}</b></span><span>{tracker.closed ? 'Kapatıldı' : 'Takipte'}</span></div></div> : <p className="text-muted">Takip başlatılıyor…</p>}
+              </article>
+            })}
+          </div>
+        )}
+      </div>
+      <div className="notice">Forward return metrikleri gözlemseldir. Geçmiş performans, gelecekteki sonucu veya kârlılığı garanti etmez.</div>
+    </section>
   )
 }
