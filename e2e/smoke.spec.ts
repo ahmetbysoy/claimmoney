@@ -45,6 +45,27 @@ test('uses four primary destinations and an accessible secondary drawer', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('renders the data-first radar with semantic meters and an accessible detail sheet', async ({ page }) => {
+  await page.goto('/')
+  const radar = page.getByTestId('screen-radar')
+  await expect(radar.locator('.radar-command')).toBeVisible()
+  await expect(radar.locator('.radar-critical-stack .feature-cell')).toHaveCount(2)
+  await expect(radar.locator('.radar-supporting-rail .feature-cell')).toHaveCount(4)
+  await expect(radar.getByRole('meter')).toHaveCount(6)
+  await expect(radar.locator('canvas')).toHaveCount(0)
+  await page.evaluate(async () => { await document.fonts.ready })
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim())).toBe('#8c5cff')
+
+  const firstFeature = radar.locator('.feature-cell').first()
+  await firstFeature.focus()
+  await firstFeature.click()
+  await expect(page.getByRole('dialog', { name: 'Order book imbalance' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Order book imbalance' })).toHaveCount(0)
+  await expect(firstFeature).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('normalizes a symbol and produces an approved test plan', async ({ page }) => {
   await page.goto('/')
   await navigateTo(page, 'settings')

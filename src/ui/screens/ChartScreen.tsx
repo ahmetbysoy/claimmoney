@@ -3,7 +3,7 @@ import { createChart, ColorType, CrosshairMode, type CandlestickData, type Histo
   type IChartApi, type ISeriesApi, type SeriesMarker, type UTCTimestamp } from 'lightweight-charts'
 import { useDataStore } from '../../store/dataStore'
 
-const theme = { bg: '#0b1220', text: '#9aacbf', grid: '#1b2a40', buy: '#22c55e', sell: '#ef4444', cyan: '#22d3ee', warning: '#f59e0b' }
+const theme = { bg: '#0d0d13', text: '#b8b1c5', grid: '#252331', buy: '#2edb8a', sell: '#ff5964', accent: '#8c5cff', warning: '#ffb454' }
 
 export function ChartScreen() {
   const candles = useDataStore(state => state.candles)
@@ -22,7 +22,7 @@ export function ChartScreen() {
   useEffect(() => {
     if (!containerRef.current) return
     const common = {
-      layout: { background: { type: ColorType.Solid, color: theme.bg }, textColor: theme.text, fontFamily: 'Inter, system-ui, sans-serif' },
+      layout: { background: { type: ColorType.Solid, color: theme.bg }, textColor: theme.text, fontFamily: 'Space Grotesk Variable, system-ui, sans-serif' },
       grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
       rightPriceScale: { borderColor: theme.grid },
       timeScale: { borderColor: theme.grid, timeVisible: true, secondsVisible: false }
@@ -31,7 +31,7 @@ export function ChartScreen() {
     chartRef.current = chart
     const candleSeries = chart.addCandlestickSeries({ upColor: theme.buy, downColor: theme.sell, borderVisible: false, wickUpColor: theme.buy, wickDownColor: theme.sell })
     candleSeriesRef.current = candleSeries
-    histRef.current = chart.addHistogramSeries({ color: theme.cyan, priceFormat: { type: 'volume' }, priceScaleId: '', priceLineVisible: false })
+    histRef.current = chart.addHistogramSeries({ color: theme.accent, priceFormat: { type: 'volume' }, priceScaleId: '', priceLineVisible: false })
     chart.priceScale('').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } })
 
     if (flowRef.current) {

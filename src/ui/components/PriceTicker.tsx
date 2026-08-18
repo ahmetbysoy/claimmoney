@@ -17,8 +17,15 @@ export function PriceTicker({ price, symbol }: Props) {
 
   return (
     <div className="price-ticker">
-      <span className="price-ticker__symbol">{symbol}</span>
-      <span className="price-ticker__price" data-testid="price-ticker" data-price={price} data-direction={direction} aria-label={`${symbol} fiyatı ${formatted}`}>
+      <span className="price-ticker__symbol mono">{symbol} PERP</span>
+      <span
+        key={`${direction}-${price}`}
+        className="price-ticker__price"
+        data-testid="price-ticker"
+        data-price={price}
+        data-direction={direction}
+        aria-label={`${symbol} fiyatı ${formatted}`}
+      >
         {formatted}
       </span>
     </div>

@@ -10,11 +10,11 @@ body { margin: 0; min-width: 320px; min-height: 100%; overflow-x: hidden; }
 button, input, select { font: inherit; }
 button { color: inherit; }
 button, label, select { -webkit-tap-highlight-color: transparent; }
-a { color: var(--cyan); }
+a { color: var(--accent-highlight); }
 ::selection { color: var(--text-primary); background: rgba(37, 99, 235, 0.55); }
 
 :focus-visible {
-  outline: 2px solid var(--cyan);
+  outline: 2px solid var(--accent-highlight);
   outline-offset: 3px;
 }
 

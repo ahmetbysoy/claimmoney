@@ -18,6 +18,8 @@
     "test:e2e:production": "PRODUCTION_QA=1 PLAYWRIGHT_BASE_URL=https://claimmoney-drab.vercel.app playwright test e2e/production.spec.ts"
   },
   "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "@vercel/analytics": "^2.0.1",
     "lightweight-charts": "^4.2.3",
     "lucide-react": "^0.468.0",
