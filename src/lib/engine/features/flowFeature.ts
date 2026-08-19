@@ -31,9 +31,11 @@ export class FlowFeature {
 
   onTrade(price: number, side: 'buy' | 'sell', qty: number, ts: number): void {
     const bucketStart = Math.floor(ts / this.bucketMs) * this.bucketMs;
+    // Close bucket if time boundary changed
     if (this.activeCandle && this.activeCandle.ts !== bucketStart) {
       this.closeBucket();
     }
+    // Start new bucket if needed
     if (!this.activeCandle) {
       this.activeCandle = {
         ts: bucketStart, open: price, high: price, low: price, close: price,
@@ -41,6 +43,7 @@ export class FlowFeature {
       };
       this.currentBucketVol = 0;
     }
+    // Accumulate trade into active candle
     const c = this.activeCandle;
     c.close = price;
     c.high = Math.max(c.high, price);
@@ -48,8 +51,17 @@ export class FlowFeature {
     c.volume += qty;
     if (side === 'buy') c.buyVolume += qty; else c.sellVolume += qty;
     this.currentBucketVol += qty;
+    // Volume-triggered close: include triggering trade in NEW bucket
     if (this.currentBucketVol >= this.bucketSize) {
+      const closedTs = c.ts;
       this.closeBucket();
+      // The triggering trade starts the new bucket (prevent loss)
+      this.activeCandle = {
+        ts: closedTs + this.bucketMs, open: price, high: price, low: price, close: price,
+        volume: qty, buyVolume: side === 'buy' ? qty : 0, sellVolume: side === 'sell' ? qty : 0,
+        delta: side === 'buy' ? qty : -qty, pressure: 0, absorption: 0, poc: price,
+      };
+      this.currentBucketVol = qty;
     }
     this.lastTickTs = ts;
   }

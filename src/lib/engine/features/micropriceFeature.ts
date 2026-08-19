@@ -12,13 +12,14 @@ export class MicropriceFeature {
     if (bbo <= 0) return { value: 0, valid: false, warmup: 0, ageMs: ts - this.lastTs };
     const deviation = (mid - bbo) / bbo * 10000;
     this.prevDev = onlineEMA(this.prevDev, deviation, this.alpha);
+    const ageMs = this.lastTs > 0 ? ts - this.lastTs : 0;
     this.lastTs = ts;
     this.count++;
     return {
       value: this.prevDev / 100,
       valid: this.count >= 5,
       warmup: Math.min(this.count, 10),
-      ageMs: 0,
+      ageMs,
       evidence: { deviation, bbo },
     };
   }

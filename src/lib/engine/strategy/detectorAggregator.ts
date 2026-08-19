@@ -1,5 +1,6 @@
 import type { DetectorResult, DetectorContext } from '../detectors/detector';
 import { WallDetector } from '../detectors/wallDetector';
+import { CompressionDetector } from '../detectors/compressionDetector';
 import { SkewDetector } from '../detectors/skewDetector';
 import { LiquidityVoidDetector } from '../detectors/liquidityVoidDetector';
 import { LadderDetector } from '../detectors/ladderDetector';
@@ -10,6 +11,7 @@ import { LiquidationClusterDetector } from '../detectors/liquidationClusterDetec
 
 export class DetectorAggregator {
   private wall = new WallDetector();
+  private compression = new CompressionDetector();
   private skew = new SkewDetector();
   private voidDet = new LiquidityVoidDetector();
   private ladder = new LadderDetector();
@@ -18,9 +20,13 @@ export class DetectorAggregator {
   private quoteManip = new QuoteManipulationDetector();
   private liqCluster = new LiquidationClusterDetector();
 
+  /** Individual results for UI diagnostics */
+  lastResults: DetectorResult[] = [];
+
   run(ctx: DetectorContext): DetectorResult {
     const results: DetectorResult[] = [
       this.wall.detect(ctx),
+      this.compression.detect(ctx),
       this.skew.detect(ctx),
       this.voidDet.detect(ctx),
       this.ladder.detect(ctx),
@@ -29,6 +35,7 @@ export class DetectorAggregator {
       this.quoteManip.detect(ctx),
       this.liqCluster.detect(ctx),
     ];
+    this.lastResults = results;
     let bullScore = 0;
     let bearScore = 0;
     for (const r of results) {
@@ -46,5 +53,16 @@ export class DetectorAggregator {
     };
   }
 
-  reset(): void { this.wall.reset(); this.flowExp.reset(); }
+  /** Feed liquidation data to cluster detector */
+  onLiquidation(price: number, qty: number, side: 'long' | 'short', ts: number): void {
+    this.liqCluster.onLiquidation(price, qty, side, ts);
+  }
+
+  reset(): void {
+    this.wall.reset();
+    this.flowExp.reset();
+    this.quoteManip.reset();
+    this.liqCluster.reset();
+    this.lastResults = [];
+  }
 }

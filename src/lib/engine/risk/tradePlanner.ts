@@ -30,7 +30,9 @@ export function createTradePlan(
     ? adjustedEntry - stopDistance
     : adjustedEntry + stopDistance;
   const risk = Math.abs(adjustedEntry - stopLoss);
-  const rr = risk > 0 ? risk / (slippage * 2) : 0;
+  if (risk <= 0) return null;
+  const reward = risk * tp2R;
+  const rr = reward / risk; // tp2R is the actual R:R ratio
   if (rr < minRR) return null;
   const takeProfit1 = side === 'BUY'
     ? adjustedEntry + risk * tp1R

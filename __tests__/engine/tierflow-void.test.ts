@@ -29,18 +29,33 @@ describe('LiquidityVoidDetector', () => {
     expect(result.confidence).toBe(0);
   });
 
-  it('should detect void (bullish)', () => {
+  it('should detect void in ask side (bullish — vacuum above)', () => {
     const ctx = makeCtx({
-      bids: [
-        { price: 100, qty: 100 },
+      bids: [{ price: 100, qty: 100 }],
+      asks: [
+        { price: 100.5, qty: 100 },
         { price: 101, qty: 100 },
         { price: 120, qty: 100 },
         { price: 121, qty: 100 },
       ],
-      asks: [{ price: 122, qty: 100 }],
     });
     const result = d.detect(ctx);
     expect(result.side).toBe('bullish');
+    expect(result.confidence).toBeGreaterThan(0);
+  });
+
+  it('should detect void in bid side (bearish — vacuum below)', () => {
+    const ctx = makeCtx({
+      bids: [
+        { price: 100, qty: 100 },
+        { price: 99, qty: 100 },
+        { price: 80, qty: 100 },
+        { price: 79, qty: 100 },
+      ],
+      asks: [{ price: 100.5, qty: 100 }],
+    });
+    const result = d.detect(ctx);
+    expect(result.side).toBe('bearish');
     expect(result.confidence).toBeGreaterThan(0);
   });
 });

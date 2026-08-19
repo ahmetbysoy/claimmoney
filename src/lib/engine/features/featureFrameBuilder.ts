@@ -6,6 +6,7 @@ import { VelocityFeature } from './velocityFeature';
 import { MicropriceFeature } from './micropriceFeature';
 import { VPINFeature } from './vpinFeature';
 import { VolatilityFeature } from './volatilityFeature';
+import { FlowFeature } from './flowFeature';
 import { generateId } from '../helpers';
 
 type FeatureExtractor = () => FeatureValue;
@@ -17,6 +18,7 @@ export class FeatureFrameBuilder {
   microprice = new MicropriceFeature();
   vpin = new VPINFeature();
   volatility = new VolatilityFeature();
+  flow = new FlowFeature();
 
   buildFrame(params: {
     symbol: string;
@@ -43,5 +45,6 @@ export class FeatureFrameBuilder {
   reset(): void {
     this.cvd.reset(); this.obi.reset(); this.velocity.reset();
     this.microprice.reset(); this.vpin.reset(); this.volatility.reset();
+    this.flow.reset();
   }
 }

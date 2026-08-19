@@ -65,6 +65,10 @@ export { ForwardTracker } from './performance/forwardTracker';
 export { Metrics } from './performance/metrics';
 export type { TradeRecord } from './performance/metrics';
 
+// --- v3 Runtime ---
+export { TierflowRuntime } from './tierflow-runtime';
+export type { RuntimeConfig, RuntimeState } from './tierflow-runtime';
+
 // --- v2 (legacy, still used) ---
 export { MarketRuntime } from './market-runtime';
 export type { MarketState } from './market-runtime';

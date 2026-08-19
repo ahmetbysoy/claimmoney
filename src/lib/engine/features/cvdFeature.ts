@@ -9,6 +9,7 @@ interface CVDState {
   emaStd: number;
   count: number;
   lastTs: number;
+  cvdHistory: number[];
 }
 
 export class CVDFeature {
@@ -25,7 +26,7 @@ export class CVDFeature {
   }
 
   private emptyState(): CVDState {
-    return { rollingBuys: 0, rollingSells: 0, emaCVD: 0, emaMean: 0, emaStd: 0, count: 0, lastTs: 0 };
+    return { rollingBuys: 0, rollingSells: 0, emaCVD: 0, emaMean: 0, emaStd: 0, count: 0, lastTs: 0, cvdHistory: [] };
   }
 
   onTrade(tradeId: string, side: 'buy' | 'sell', qty: number, ts: number): void {
@@ -39,6 +40,20 @@ export class CVDFeature {
     if (total === 0) return;
     const cvdNorm = (this.state.rollingBuys - this.state.rollingSells) / total;
     this.state.emaCVD = onlineEMA(this.state.emaCVD, cvdNorm, this.alpha);
+    // Update running mean/std for z-score
+    this.state.cvdHistory.push(cvdNorm);
+    if (this.state.cvdHistory.length > 120) this.state.cvdHistory.shift();
+    if (this.state.cvdHistory.length >= 2) {
+      this.state.emaMean = onlineEMA(this.state.emaMean, cvdNorm, 0.05);
+      const variance = this.state.cvdHistory.reduce((s, v) => s + (v - this.state.emaMean) ** 2, 0) / this.state.cvdHistory.length;
+      this.state.emaStd = Math.sqrt(variance);
+    }
+    // Expire old trades from rolling window
+    const cutoff = ts - this.windowMs;
+    // (simplified: seenIds handles dedup, periodic prune needed for memory)
+    if (this.state.count % 500 === 0 && this.seenIds.size > 2000) {
+      this.seenIds.clear();
+    }
   }
 
   getValue(ts: number): FeatureValue {

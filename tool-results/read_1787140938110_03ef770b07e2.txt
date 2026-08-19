@@ -1,0 +1,402 @@
+   300→   300→| `stop()` | Interval kapatır. | In-flight fetchleri de iptal etmeli. |
+   301→   301→| `tick()` | Exchange poll'larını paralel çalıştırır. | Overlapping tick engeli; latency ve response timestamp ölçümü. |
+   302→   302→| `pollExchange(key)` | Önce Vercel proxy, sonra doğrudan REST. | Adapter başına parser/schema validation; HTTP status kontrolü; stale quote korunacak mı sıfırlanacak mı açık politika. |
+   303→   303→| `buildUrl(key)` | Exchange endpoint üretir. | Sembol dönüşümü her exchange adapterına taşınmalı; Binance id'si ya uygulanmalı ya union'dan çıkarılmalı. |
+   304→   304→| `getState()` | Mutable state. | Readonly snapshot. |
+   305→   305→| `getMaxSpread()` | En yüksek ask - en düşük bid. | **Düzelt:** `bestSellBid - bestBuyAsk`; ayrıca net spread'den iki taraflı fee, funding, transfer/latency buffer düşülmeli. Negatifse arbitrage yok. |
+   306→   306→| `updateConfig()` | Config merge ve interval restart. | Enabled list değişince quote status reset; schema validation. |
+   307→   307→| `reset()` | Stop + state reset. | App reset'i bunu çağırınca source değişiminde poller duruyor; market-data reset ile service lifecycle ayrılmalı. |
+   308→   308→
+   309→   309→### Edge API `handler(req)`
+   310→   310→
+   311→   311→| Mevcut görev | Geliştirme |
+   312→   312→|---|---|
+   313→   313→| Exchange ve symbol query alır, sabit exchange hostundan quote çeker. | Yalnız GET/OPTIONS kabul et; symbol regex/uzunluk doğrula; cache (100–500ms), rate-limit, timeout/error telemetry ekle; upstream `res.ok` kontrol et; ham upstream cevabını 502'de kullanıcıya döndürme. |
+   314→   314→
+   315→   315→## 4.11 WebSocket katmanı
+   316→   316→
+   317→   317→### `BinanceAdapter`
+   318→   318→
+   319→   319→| Metot | Mevcut görev | Geliştirme |
+   320→   320→|---|---|---|
+   321→   321→| `onEvent(cb)` | Tek callback kaydeder. | Typed observable/async iterator; çoklu subscriber gerekiyorsa EventBus. |
+   322→   322→| `getConnectionState()` | State döndürür. | Connection metadata: lastMessageAt, latency, retry count. |
+   323→   323→| `connect(symbol)` | aggTrade, depth20, markPrice combined stream. | Mesaj schema validation; trade ID dedup; depth event'e `snapshot` semantiği ve sequence ekle; invalid symbol/error payloadını kullanıcıya bildir; heartbeat watchdog. |
+   324→   324→| `disconnect()` | Socket kapatır. | Handlerları null'la, intentional-close reason taşı, eski socket eventlerini generation token ile yok say. |
+   325→   325→
+   326→   326→### `OkxAdapter`
+   327→   327→
+   328→   328→| Metot | Mevcut görev | Geliştirme |
+   329→   329→|---|---|---|
+   330→   330→| `onEvent/getConnectionState` | Binance ile aynı sözleşme. | Ortak base adapter veya composition. |
+   331→   331→| `connect(symbol)` | Trades/books/tickers; local incremental book. | `tickers.last` mark değildir; event adı `lastPrice` olmalı veya gerçek mark-price channel kullanılmalı. OKX ping/pong ve resubscribe eklenmeli. Checksum önceki checksum'la karşılaştırılmaz; local top-25 CRC32 hesaplanarak gelen checksum ile doğrulanır. |
+   332→   332→| `disconnect()` | Socket ve local book reset. | Intentional close ve stale callback guard. |
+   333→   333→
+   334→   334→### `WsManager`
+   335→   335→
+   336→   336→| Metot | Mevcut görev/bağlantı | Geliştirme fikri |
+   337→   337→|---|---|---|
+   338→   338→| `constructor(onEvent)` | Callback ve visibility listener kurar. | Listener referansı saklanmalı ve `dispose()` ile kaldırılmalı. Şu an her yeni manager eski listener bırakabilir. |
+   339→   339→| `connect(source, symbol)` | Adapter kurar, reconnect sayacını sıfırlar. | Her reconnect değil yalnız kullanıcı komutunda attempt reset; generation/session ID. |
+   340→   340→| `switchSource/switchSymbol` | `connect` wrapper. | Sembol değişiminde pipeline reset event'i ve instrument metadata yükleme. |
+   341→   341→| `disconnect()` | Auto reconnect kapatır. | Timer null'lanmalı; visibility listener kaldırılmalı; `disposed` flag. |
+   342→   342→| `createAdapterAndConnect()` | Adapter seçer ve eventleri bağlar. | Factory/registry; eski adapterın gecikmiş `onclose` eventini görmezden gel. |
+   343→   343→| `scheduleReconnect()` | Exponential backoff+jitter. | `onerror` ve `onclose` çift schedule'ını tekilleştir; online/offline browser eventleri; max attempt/degraded fallback. OKX başarısızsa gerçekten Binance fallback şu an otomatik değil. |
+   344→   344→| `getState()` | Adapter state'i. | Health snapshot. |
+   345→   345→
+   346→   346→## 4.12 Score ve karar
+   347→   347→
+   348→   348→### `scoreAggregator.ts`
+   349→   349→
+   350→   350→| Fonksiyon | Mevcut görev/bağlantı | Geliştirme fikri |
+   351→   351→|---|---|---|
+   352→   352→| `computeDetectorScore(bull,bear)` | Detector confidence toplam farkını `[-1,1]`e sıkıştırır. | Çok sayıda aynı tip sinyal skoru şişirebilir. Detector tipine göre bir oy, correlation cluster, decay ve Bayesian/log-odds birleşimi kullanılmalı. |
+   353→   353→| `aggregateScore(input,weights,divergenceAdj)` | Altı feature ve divergence'ı tek skor yapar. | `input.divergenceAdj` varken ayrıca parametre verilmesi kaldırılmalı. Feature clipping/winsorization, validity mask ve ağırlıkların yalnız valid featurelar üzerinde yeniden normalize edilmesi gerekir. |
+   354→   354→
+   355→   355→### `engine.ts` yardımcıları
+   356→   356→
+   357→   357→| Fonksiyon | Mevcut görev | Geliştirme |
+   358→   358→|---|---|---|
+   359→   359→| `normalizeWeights(w)` | Altı ağırlığı 1'e normalize eder. | Negative/NaN/Infinity reject; typed zorunlu altı alan; feature ID map daha ölçeklenebilir. |
+   360→   360→| `computeScore(...)` | Aggregator'ın eski/ikinci versiyonu. | Tek skor kaynağı olmalı. Şu an runtime'da kullanılmıyor; kaldır veya `aggregateScore` bunun üzerinden çalışsın. |
+   361→   361→| `computeConfidence(score)` | `abs(score)/1.2` lineer confidence. | Bu istatistiksel olasılık değildir. Walk-forward sonuçlarından isotonic/logistic calibration ile gerçek hit probability tahmini; sample size gösterimi. |
+   362→   362→
+   363→   363→### `SignalEngine`
+   364→   364→
+   365→   365→| Metot | Mevcut görev | Geliştirme |
+   366→   366→|---|---|---|
+   367→   367→| `constructor(config)` | FSM başlangıcı. | Clock ve ID generator injection; config validation. |
+   368→   368→| `updateConfig` | Live config merge. | Threshold değişince ARMED sayaç politikası belirlenmeli. |
+   369→   369→| `sideOf` | Score işareti → BUY/SELL. | Score=0 için çağrılmamalı; explicit neutral. |
+   370→   370→| `isNeutral` | Hysteresis bandı. | Entry/exit threshold'ları ayrı ve regime-adaptive olabilir. |
+   371→   371→| `isBlockedByHysteresis` | Neutral görülmeden ters tarafı engeller. | Formal transition table ve property-based test. |
+   372→   372→| `trackNeutral` | Neutral flag. | Event timestamp/dwell time tutmalı; tek tick neutral yeterli olmayabilir. |
+   373→   373→| `makeSignal` | Signal nesnesi üretir. | `any` kaldır; UUID/monotonic ID; filter/evidence/version/symbol ekle. |
+   374→   374→| `handleCooldown` | Süre dolunca IDLE. | Cooldown event time monotonic olmalı; out-of-order timestamp guard. |
+   375→   375→| `handleFired` | Sonraki tick'te COOLDOWN. | `FIRED` transient event yapılabilir; state store ile engine ayrışmasın. |
+   376→   376→| `tick` | Threshold üstünde iki tick ile ateş. | **Aynı yön şartı**, minimum zaman aralığı/dwell, aynı FeatureFrame cadence'i. Filter/gate sonucu engine'e girmeden önce hazır olmalı. Invalid/stale frame sayaç ilerletmemeli. |
+   377→   377→| `getState/reset/_getInternal` | State erişimi/test/reset. | `_getInternal` test-only adapter; serializable FSM snapshot ve restore. |
+   378→   378→
+   379→   379→## 4.13 Filtre stratejileri — `src/core/signal/filters.ts`
+   380→   380→
+   381→   381→| Fonksiyon | Mevcut görev/bağlantı | Geliştirme fikri |
+   382→   382→|---|---|---|
+   383→   383→| `mean/std/clamp` | Flat-market vol hesabı. | Ortak statistics modülü. |
+   384→   384→| `isFlatMarket(...)` | 60s range dinamik eşikten küçükse flat. | `Date.now()` yerine frame/event time. Return yerine ATR, realized vol ve spread regime ile `RegimeClassifier`. “Flat” her strateji için kötü olmayabilir. |
+   385→   385→| `hasOBIConfluence(obi)` | `|OBI|>=0.06`. | Sadece büyüklük değil score yönüyle aynı yön kontrolü; percentile-adaptive threshold. |
+   386→   386→| `hasConfluence(...)` | CVD/OBI/VEL üçlüsünden 2 aynı yön. | OBI `[-1,1]`, z-score'lar başka ölçekte; her feature normalize edilmeli. Micro/detector de quality-weighted oy verebilir. |
+   387→   387→| `isHighArbitrageSpread(...)` | Spread >%0.15 blok. | Cross-exchange formülü düzeldikten sonra quote age, fees ve dispersion kullanılmalı. Büyük dispersion bazen veri bozukluğu; filter reason `data_quality`. |
+   388→   388→| `applyFilters(...)` | Sıralı ilk-fail filtresi. | Tüm filter sonuçlarını döndür (`decisions[]`); hard veto ve soft penalty ayrımı. **Engine'den önce** çağrılmalı. |
+   389→   389→
+   390→   390→## 4.14 Trade plan — `src/core/signal/tradePlan.ts`
+   391→   391→
+   392→   392→### Yardımcılar
+   393→   393→
+   394→   394→| Fonksiyon | Geliştirme |
+   395→   395→|---|---|
+   396→   396→| `clamp` | Ortak math modülü. |
+   397→   397→| `mean` | Kullanılmıyor; kaldır. |
+   398→   398→
+   399→   399→### `TradePlanGenerator`
+   400→   400→
+   401→   401→| Metot | Mevcut görev/bağlantı | Geliştirme fikri |
+   402→   402→|---|---|---|
+   403→   403→| `constructor` | RR, Kelly, balance, risk ayarı. | Config para birimi/instrument metadata ve maksimum portfolio exposure içermeli. |
+   404→   404→| `on/emit` | signal/plan/optimizer eventleri. | Store bu eventleri dinlemiyor. Typed event ve tek orchestrator bağlantısı. |
+   405→   405→| `addSignal(sig)` | Detector signal dedup + TTL. | Dedup key `symbol+type+side+priceBand`; detector state update aynı sinyali güncelleyebilmeli. |
+   406→   406→| `scoreSignals()` | Son 30s confidence toplamı. | Aynı detector spam'ini sınırla; type başına max contribution; base confidence'i mutasyondan koru; decay burada hesaplanabilir. |
+   407→   407→| `generateTradePlan(...)` | Bull/bear confluence, wall destekli entry/SL/TP ve min RR. | Yalnız **onaylı nihai Signal** sonrası çalışmalı; şu an her trade'de detector aggregate'den plan üretir. ATR yerine gerçek return volatility/ATR; tick/lot rounding; fee/slippage sonrası net RR; wall'ın entry/TP ile mantıksal konumu doğrulanmalı. |
+   408→   408→| `calculateMicroOptimizer(...)` | Risk-budget + Kelly pozisyon boyutu. | Önce Kelly factor ile qty'yi belirle, sonra notional/leverage/margin/fee/liq hesapla. Margin balance'ı aşmamalı. Stop-to-liquidation güvenlik payı, fee/funding ve min quantity ekle. Kelly için paper performance ve confidence interval kullan. |
+   409→   409→| `decaySignals(price)` | Zaman/fiyat uzaklığı decay ve prune. | Şu an hiç çağrılmıyor. Ayrıca confidence her çağrıda yeniden çarpıldığı için compounding decay oluşur; immutable `baseConfidence` üzerinden hesaplanmalı. Scheduler'a bağla. |
+   410→   410→| `getNarrative()` | Bull/bear açıklama metni. | UI/localization katmanına taşı; structured reasons kullan. Şu an kullanılmıyor. |
+   411→   411→| `getPlan/getPositionSize/getSignals` | State getters. | Readonly snapshot. |
+   412→   412→| `updateConfig/reset` | Config/state yönetimi. | Validation ve event. |
+   413→   413→
+   414→   414→## 4.15 Paper trading — `src/core/paper/paperTrading.ts`
+   415→   415→
+   416→   416→| Fonksiyon/metot | Mevcut görev/bağlantı | Geliştirme fikri |
+   417→   417→|---|---|---|
+   418→   418→| `clamp/mean/std` | Slippage ve performans helper'ları. | Ortak math modülü. |
+   419→   419→| `constructor` | Position/performance state. | Balance, fees, funding, maker/taker, instrument spec, clock ekle. |
+   420→   420→| `on/emit` | Open/close eventleri. | Store/UI bu eventleri dinlemiyor; paper dashboard'a bağla. |
+   421→   421→| `simulateFromPlan(...)` | Planı anında fill edip position açar. | Entry seviyesine fiyat hiç gelmeden fill yapılmamalı. Pending order lifecycle, partial fill ve L2 walk simülasyonu. Aynı planın tekrar açılmasını plan ID ile engelle. |
+   422→   422→| `update(price)` | Stop/TP kontrolü. | Tick gap'te stop/TP fill slippage; OHLC içinde ikisi birden görülürse konservatif sıra; TP1 partial exit ve stop-to-BE. |
+   423→   423→| `close(...)` | PnL, R, equity, PF, Sharpe, DD. | Risk paydası `(entry-stop)*qty` olmalı. Fees, slippage/funding net PnL'e dahil edilmeli. `positions` closed kayıtları ayrıca sonsuza kadar büyümesin. |
+   424→   424→| `getOpenPositions/getClosedPositions/getPerformance` | State erişimi. | Immutable snapshots; portfolio-level unrealized PnL. |
+   425→   425→| `updateConfig/reset` | Ayar/reset. | Reset ayrı `newSession`, `changeSymbol`, `clearHistory` politikalarına bölünmeli. |
+   426→   426→
+   427→   427→## 4.16 Forward tracker — `src/core/performance/signalTracker.ts`
+   428→   428→
+   429→   429→| Fonksiyon/metot | Mevcut görev/bağlantı | Geliştirme fikri |
+   430→   430→|---|---|---|
+   431→   431→| `calcPnl(side,entry,current)` | Brüt yönsel yüzde getiri. | Fee/slippage-adjusted ve mark/index seçenekleri; exported pure function olabilir. |
+   432→   432→| `on/emit` | add/update/horizon/close. | Typed event. Store her fiyat eventinde tüm tracker listesini tekrar çekmek yerine event ile incremental güncellesin. |
+   433→   433→| `addSignal(signal)` | Horizon tracker oluşturur. | Symbol/source/strategyVersion/session ekle; test signal de aynı komuttan geçmeli. |
+   434→   434→| `updatePrice(price,ts)` | Live, MFE/MAE, horizonları doldurur. | Symbol'e göre tracker seç; out-of-order fiyatı reddet; tam horizon için nearest-after veya interpolasyon politikası; aktif tracker index'i. |
+   435→   435→| `get/getAll` | Tracker erişimi. | Pagination/readonly; Map closed kayıtlarla sınırsız büyümemeli. |
+   436→   436→| `getStats(lastN)` | Win/average/MFE/MAE. | Her horizon kendi tamamlanmış örnek kümesini kullanmalı. Şu an 15s tamamlanan ama 60s/300s bekleyen kayıtlar 0 kabul edilerek win/avg aşağı çekiliyor. Confidence interval, median, expectancy ve sample count/horizon ekle. |
+   437→   437→| `clear/size` | Reset/ölçü. | Session persist/export desteği. |
+   438→   438→| `globalTracker` | Module singleton. | Dependency injection; test, multi-symbol ve HMR için singleton kaldırılmalı. |
+   439→   439→
+   440→   440→## 4.17 Store ve orkestrasyon — `src/store/dataStore.ts`
+   441→   441→
+   442→   442→### Yardımcı fonksiyonlar
+   443→   443→
+   444→   444→| Fonksiyon | Mevcut görev | Geliştirme |
+   445→   445→|---|---|---|
+   446→   446→| `getSettings()` | Her hesap tick'inde localStorage parse eder. | `settingsStore.getState()` veya settings subscription ile in-memory config. Core localStorage bilmemeli. |
+   447→   447→| `updateCandle(price,ts)` | 15s yerel OHLC. | Trade qty ile volume artır; mark ve trade candle kaynaklarını karıştırma; event-time alignment; ayrı `CandleBuilder` sınıfı. |
+   448→   448→| `computeMicroDev(depth)` | BBO microprice hesaplar. | Runtime'da kullanılmıyor; order-book feature fonksiyonuyla tekilleştir veya kaldır. |
+   449→   449→
+   450→   450→### Zustand action ve side effect'leri
+   451→   451→
+   452→   452→| Fonksiyon/akış | Mevcut görev | Geliştirme |
+   453→   453→|---|---|---|
+   454→   454→| `handleTrade(t)` | Tracker, VPIN, Flow, CVD, velocity, score, filter, FSM, plan ve paper işlemlerini tek fonksiyonda yapar. | Parçala: `ingestTrade → updateMarketState → featureScheduler → decisionPipeline → effects`. Fixed 100ms FeatureFrame cadence kullan. Tek fonksiyon yaklaşık 140 satırlık transaction olmamalı. |
+   455→   455→| `handleDepth(d)` | Order book, OBI, micro, detectors. | Snapshot/delta semantiğine göre uygula; recompute'u bir kez yap; detectorleri scheduler'a ver; catch'leri logla. |
+   456→   456→| `handleMark(price,ts,priceStr)` | Tracker, price history, velocity ve tekrar score/FSM. | Sinyal üretimini trade ve mark handlerlarında kopyalama. Mark yalnız canonical clock/price update olsun; tek FeatureFrame loop karar versin. |
+   457→   457→| `reset()` | Tüm data ve servisleri resetler. | Market state reset ile long-lived service lifecycle'ı ayır. Cross poller reset yüzünden source değişiminde durmamalı. Sembol bazlı session nesnesi değiştir. |
+   458→   458→| `detectorSuite.on('signal:add',...)` | Detector listesi ve TradePlan feed. | Tek subscription orchestrator lifecycle'ında kurulsun; detector UI listesine de dedup uygulanmalı. |
+   459→   459→| Global `setInterval(250ms)` | Flow tick ve store update. | Disposable scheduler/service; HMR ve testlerde timer kaçağını önle. Event-driven `flow:update`. |
+   460→   460→| `_internal` | Test/debug için bütün singletonları expose eder. | Public devtools adapter; production build'de tree-shake/feature flag. |
+   461→   461→| `_internal.resetInternal()` | Test reset'i. | Orchestrator instance yaratmak, global reset ihtiyacını ortadan kaldırır. |
+   462→   462→
+   463→   463→### Store'daki önemli tasarım sorunları
+   464→   464→
+   465→   465→- `lastThrottle` trade/depth/mark için ortaktır; farklı akışlar birbirini etkiler.
+   466→   466→- `handleTrade` ve `handleMark` score/FSM kodunu iki kez içerir; zamanla davranış sapması oluşur.
+   467→   467→- Birçok `catch {}` gerçek veri bozulmasını görünmez yapar.
+   468→   468→- `computeScore` import edilip kullanılmıyor.
+   469→   469→- `cvd` metrics alanı her iki path'te de `0`; ayrı store `cvd` alanı `cvdNorm` tutuyor. İsimler tutarsız.
+   470→   470→- `cvdNormHistory` timestamp tutmuyor; divergence için price serisiyle doğru hizalanamaz.
+   471→   471→- Detector'a verilen tüm CVD kayıtlarının timestamp'i aynı `Date.now()` yapılıyor.
+   472→   472→- Store her 100ms'de trackers/stats/flow arraylerini tekrar yazar; gereksiz React renderları oluşur.
+   473→   473→- Core modüller module-load sırasında poller ve interval başlatır; import etmek side effect üretir.
+   474→   474→
+   475→   475→## 4.18 Settings/UI store
+   476→   476→
+   477→   477→### `settingsStore.ts`
+   478→   478→
+   479→   479→| Fonksiyon | Mevcut görev | Geliştirme |
+   480→   480→|---|---|---|
+   481→   481→| `setSource/setSymbol` | Kaynak/sembol günceller. | Komut validation; değişiklik orchestrator lifecycle event'ine dönüşmeli. |
+   482→   482→| `setWeights` | Her slider hareketinde altı ağırlığı normalize eder. | NaN/negative guard; simplex edit UX. Bir slider sürüklenirken diğerlerinin sürekli değişmesi kullanıcıyı şaşırtır. |
+   483→   483→| `setThreshold/setCooldown` | FSM config. | Aralık validation ve strategy profile/version. |
+   484→   484→| `setSound/setHaptics` | Tercih. | Ses ve titreşim etkileri birbirinden bağımsız uygulanmalı. |
+   485→   485→| `setPaperTradingEnabled` | Paper flag. | UI mevcut ekranda bu alanı kullanmıyor; toggle ve açık risk uyarısı eklenmeli. |
+   486→   486→| `migrate` | Persisted settings migration. | Migrationlar erken `return` yüzünden ardışık uygulanmıyor. Eski sürümden current sürüme step-by-step döngü kurulmalı; migration testleri yazılmalı. |
+   487→   487→
+   488→   488→### `uiStore.ts`
+   489→   489→
+   490→   490→| Fonksiyon | Geliştirme |
+   491→   491→|---|---|
+   492→   492→| `setTab` | Basit ve uygun. URL/hash routing veya persist tercihe bağlı eklenebilir. |
+   493→   493→
+   494→   494→## 4.19 Audio ve UI fonksiyonları
+   495→   495→
+   496→   496→### `sound.ts`
+   497→   497→
+   498→   498→| Fonksiyon | Mevcut görev | Geliştirme |
+   499→   499→|---|---|---|
+   500→   500→| `getCtx()` | AudioContext lazy oluşturur/resume eder. | Kullanıcı gesture'ında `unlockAudio`; dispose/close; resume await/telemetry. |
+   501→   501→| `tone(...)` | Oscillator/gain ile ses. | Gain 0'dan kısa attack ile click azalt; master volume. |
+   502→   502→| `vibrate(...)` | Navigator vibration. | Haptics preference parametresi/service tarafından kontrol edilmeli. |
+   503→   503→| `playBuy/playSell` | Ses + titreşimi birlikte yapar. | `NotificationService.notifySignal({sound,haptics})`; tercihler bağımsız olsun. |
+   504→   504→| `playDisconnect` | Düşük ton. | Reconnect spam rate-limit. |
+   505→   505→| `playTest` | BUY/SELL wrapper. | Settings test butonları doğrudan bunu kullanmalı; şu an test event'i App'te tekrar ses çaldığı için çift ses olabilir. |
+   506→   506→
+   507→   507→### UI bileşenleri
+   508→   508→
+   509→   509→| Fonksiyon/bileşen | Mevcut görev | Geliştirme |
+   510→   510→|---|---|---|
+   511→   511→| `useConfetti()` | Signal burst fonksiyonu. | `useCallback` ile stabil referans; reduced-motion tercihi; timeout cleanup. |
+   512→   512→| `PulseRing` | Web Animation pulse. | Animation cleanup/cancel; event side'ını prop olarak sakla. |
+   513→   513→| `Header` | Bağlantı, fiyat, sembol, ses. | Stale data badge ve exchange latency; kullanılmayan `Activity` importunu kaldır. |
+   514→   514→| `MeterBar` | Değeri `[-2,2]→[0,100]` fill'e çevirir. | Bipolar bar merkezden yukarı/aşağı dolmalı; mevcut 0 değeri %50 dolu gösteriyor. Her feature'ın ölçeği ayrı olmalı. |
+   515→   515→| `PriceTicker` | Fiyat yön animasyonu. | Decimal precision instrument metadata; high-frequency animation rate-limit. |
+   516→   516→| `RadarGauge` | Canvas sweep/needle. | `devicePixelRatio`, ResizeObserver, reduced motion; her score değişiminde RAF loop yeniden kurulmasın. |
+   517→   517→| `SignalLed` | BUY/SELL/neutral gösterimi. | Gerçek fired side ile candidate score side ayrılmalı. |
+   518→   518→| `TabBar` | Ekran değişimi. | `icon: any` yerine Lucide icon tipi; lazy screen import ile bundle split. |
+   519→   519→| `RadarScreen` | Feature barları, gauge, son sinyal. | DET metrics'i bağla; filter reasons/data quality/warmup göster; effect'te stabil confetti callback. VPIN UI “Toxic >0.6” yazarken kod eşiği 0.7. |
+   520→   520→| `ChartScreen` | Mum, signal marker, flow, footprint. | `setData`+`fitContent` her 100ms yerine incremental `update`; kullanıcının zoom'u korunmalı. “CVD” diye fiyat farkı çizilmemeli. Refs `any` yerine library tipleri. |
+   521→   521→| `fmtPct` | PnL formatı. | `Intl.NumberFormat`; NaN guard. |
+   522→   522→| `HorizonBadge` | Horizon badge. | Sample source/fees ve pending kalan süre tooltip'i. |
+   523→   523→| `SignalsScreen` | Sinyal ve tracker stats. | Detector/plan/paper tabları; virtualization; filter evidence ve strategy version. |
+   524→   524→| `normalizeFuturesSymbol` | Input'u USDT'ye çevirir. | Exchange instrument catalog doğrulaması; `1000PEPE` gibi gerçek base isimleri korunmalı. |
+   525→   525→| `SettingsScreen` | Exchange/symbol/weights/threshold/notifications. | Binance listesi OKX için geçerlilik garantisi vermiyor; source-specific catalog. Paper toggle eksik. Test signal normal production command pipeline'dan geçmeli ve tracker'a eklenmeli. |
+   526→   526→| `App` | WS lifecycle, ekranlar, audio eventleri. | `MarketRuntimeProvider`/service lifecycle; stale closure ve visibility listener leak'ini çöz. Debug globals production'da kapalı olmalı. Screenleri lazy import et. |
+   527→   527→
+   528→   528→### Bileşen içindeki adlandırılmış/nested callback'ler
+   529→   529→
+   530→   530→| Fonksiyon | Mevcut görev | Geliştirme |
+   531→   531→|---|---|---|
+   532→   532→| `useConfetti.fire(side)` | İki aşamalı konfeti burst'ü. | `useCallback`, timeout cleanup, reduced-motion ve event rate limit. |
+   533→   533→| `RadarGauge.draw(now)` | Canvas grid, sweep, needle ve score çizimi. | Prop değişiminden bağımsız tek RAF; değerleri ref'ten oku, DPR ölçekle ve görünmeyen sekmede durdur. |
+   534→   534→| `RadarScreen.handler(event)` | `signal-fired` event'inde konfeti/pulse. | Global DOM event yerine typed SignalBus subscription; timeout cleanup; event'in side'ını kullan. |
+   535→   535→| `App` içindeki `WsManager` event callback'i | Status/trade/depth/mark dispatch. | `MarketRuntime`ın tek ingest entrypoint'i; component state closure'larından bağımsız. |
+   536→   536→| `App` içindeki audio `handler(event)` | Signal sesini çalar. | NotificationService; sound ve haptics bağımsız. Test eventinde çift ses üretmemeli. |
+   537→   537→| `ChartScreen` resize callback'i | İki chart genişliğini günceller. | RAF/debounce; chart dispose sonrası callback guard. |
+   538→   538→| `ChartScreen` data effect'i | Mum, marker, sahte “CVD” ve flow serilerini topluca yazar. | Her seri için incremental selector/effect; yalnız değişen son noktayı `update` et. |
+   539→   539→| `SettingsScreen.filteredCoins` memo callback'i | Arama sonucunu ilk sekiz sembolle sınırlar. | Source-specific instrument catalog, alias/fuzzy arama. |
+   540→   540→| `SettingsScreen.handleSelectCoin(coin)` | Sembol seçip dropdown'u kapatır. | Seçimden önce exchange availability doğrulaması; başarısız bağlantıda eski sembole rollback. |
+   541→   541→| `SettingsScreen.handleCustomCoinSubmit()` | Input'u normalize edip sembol yapar. | Catalog doğrulaması ve kullanıcıya açık hata. |
+   542→   542→| `SettingsScreen.handleWeight(k,v)` | Tek ağırlığı değiştirip store normalizasyonu çağırır. | Kilitli ağırlık/remaining-budget UX veya raw draft + Apply. |
+   543→   543→| BUY/SELL test butonu callback'leri | Store'a elle sinyal ekler, ses ve DOM event üretir. | `SignalCommandBus.injectTestSignal` üzerinden tracker, UI ve notification'a bir kez dağıtılmalı. |
+   544→   544→| `PriceTicker` direction effect'i | Önceki fiyata göre up/down/flat belirler. | Minimum tick değişimi ve animation throttle. |
+   545→   545→| `PulseRing` animation effect'i | Active değişiminde Web Animation başlatır. | Dönen Animation nesnesini cleanup'ta iptal et. |
+   546→   546→
+   547→   547→Anonim `map/filter/reduce` callback'leri ayrı birer domain API sayılmamıştır; ilgili üst fonksiyonun satırında performans ve doğruluk açısından değerlendirilmiştir.
+   548→   548→
+   549→   549→---
+   550→   550→
+   551→   551→# 5. Mevcut stratejilerin listesi
+   552→   552→
+   553→   553→## 5.1 Veri ve dayanıklılık stratejileri
+   554→   554→
+   555→   555→1. OKX ana kaynak, Binance manuel alternatif.
+   556→   556→2. WebSocket reconnect: exponential backoff, maksimum 30s, jitter.
+   557→   557→3. Sekme gizlenince WS pause, görünür olunca reconnect.
+   558→   558→4. OKX local book merge.
+   559→   559→5. Cross-exchange REST proxy + doğrudan fetch fallback.
+   560→   560→6. Trade buffer maksimum 1000; UI sinyal listesi 200.
+   561→   561→7. Store güncellemelerinde yaklaşık 10Hz throttle.
+   562→   562→
+   563→   563→## 5.2 Feature stratejileri
+   564→   564→
+   565→   565→1. 60s normalize CVD.
+   566→   566→2. CVD EMA/std z-score.
+   567→   567→3. 20/60 örnek multi-timeframe CVD confluence — yazılmış ama bağlı değil.
+   568→   568→4. CVD/fiyat divergence bonusu ±0.3.
+   569→   569→5. Top-level order book OBI + EMA.
+   570→   570→6. Mid/BBO microprice sapması.
+   571→   571→7. Fiyat velocity ve 30 örneklik z-score.
+   572→   572→8. Volume-bucket VPIN toxicity.
+   573→   573→9. 5s flow delta candle ve footprint.
+   574→   574→10. POC ve absorption level.
+   575→   575→11. Altı feature'lı weighted composite score.
+   576→   576→
+   577→   577→## 5.3 Detector stratejileri
+   578→   578→
+   579→   579→1. Strong bid/ask wall.
+   580→   580→2. Compression zone.
+   581→   581→3. Book skew.
+   582→   582→4. Bid/ask liquidity void.
+   583→   583→5. Bid ladder.
+   584→   584→6. Suspected spoof/high refresh spoof.
+   585→   585→7. Iceberg order.
+   586→   586→8. Flow delta expansion.
+   587→   587→9. Liquidation cluster — veri kaynağı henüz bağlı değil.
+   588→   588→
+   589→   589→## 5.4 Sinyal/risk stratejileri
+   590→   590→
+   591→   591→1. Flat-market hard filter.
+   592→   592→2. Minimum absolute OBI filter.
+   593→   593→3. CVD/OBI/velocity 2-of-3 confluence.
+   594→   594→4. Cross-exchange spread veto.
+   595→   595→5. VPIN toxic ve düşük score veto.
+   596→   596→6. FSM: `IDLE → ARMED → FIRED → COOLDOWN`.
+   597→   597→7. İki threshold tick confirmation.
+   598→   598→8. Neutral görmeden ters yöne geçişi engelleyen hysteresis.
+   599→   599→9. Detector confluence'dan LONG/SHORT trade plan.
+   600→   600→10. Spread/wall tabanlı entry, stop, TP1, TP2.
+   601→   601→11. Minimum RR 2.5.
+   602→   602→12. Risk-budget + fractional Kelly sizing.
+   603→   603→13. Basit L2-depth tabanlı paper slippage.
+   604→   604→14. +15s/+30s/+60s/+5m/+15m forward return, MFE/MAE.
+   605→   605→
+   606→   606→---
+   607→   607→
+   608→   608→# 6. Önceliklendirilmiş sorun listesi
+   609→   609→
+   610→   610→## P0 — Sonucun doğruluğunu doğrudan bozanlar
+   611→   611→
+   612→   612→1. Filtre/FSM sırası ve state ayrışması.
+   613→   613→2. Ardışık tick yönünün kontrol edilmemesi.
+   614→   614→3. Snapshot/delta order-book semantiği ve sequence/resync.
+   615→   615→4. Spoof side bug'ı.
+   616→   616→5. Flow rollover trade kaybı.
+   617→   617→6. Paper R birim hatası.
+   618→   618→7. Kelly sonrası tutarsız alanlar.
+   619→   619→8. Cross-exchange spread matematiği.
+   620→   620→9. Tracker horizon denominator bias'ı.
+   621→   621→10. CVD/price timestamp hizasız divergence.
+   622→   622→
+   623→   623→## P1 — Güvenilirlik ve gözlenebilirlik
+   624→   624→
+   625→   625→1. Boş `catch {}` blokları.
+   626→   626→2. WS visibility listener leak/stale manager reconnect riski.
+   627→   627→3. `onerror` + `onclose` çift reconnect.
+   628→   628→4. OKX checksum doğrulamasının gerçek checksum olmaması.
+   629→   629→5. Data staleness'in sinyal üretimini kapatmaması.
+   630→   630→6. Source değişiminde cross-exchange poller'ın reset ile durması.
+   631→   631→7. Module import sırasında timer/poller side effect'i.
+   632→   632→8. Detector signal spam/dedup sırası.
+   633→   633→9. VPIN warmup ve bucket split eksikliği.
+   634→   634→10. Plan/paper eventlerinin store/UI'a bağlı olmaması.
+   635→   635→
+   636→   636→## P2 — Mimari ve performans
+   637→   637→
+   638→   638→1. `dataStore.ts` god object ve duplicate trade/mark karar kodu.
+   639→   639→2. Her trade'de buffer kopyalama/localStorage parse.
+   640→   640→3. Chart'ta her update tüm setData + fitContent.
+   641→   641→4. React store'a sürekli aynı büyük arraylerin yazılması.
+   642→   642→5. Generic `Function`, yoğun `any`, mutable getterlar.
+   643→   643→6. Altı ağırlığın iki farklı score fonksiyonunda tekrarı.
+   644→   644→7. Ortak math helperlarının birçok dosyada kopyası.
+   645→   645→8. 590kB tek bundle; screen/library code splitting yok.
+   646→   646→9. Type-check'in CI/build scriptinde olmaması.
+   647→   647→
+   648→   648→## P3 — Ürün bütünlüğü
+   649→   649→
+   650→   650→1. Paper mod ayarı UI'da yok.
+   651→   651→2. Detector signals, plan, position size ve paper performance görünmüyor.
+   652→   652→3. Chart CVD etiketi yanlış.
+   653→   653→4. VPIN eşik metinleri tutarsız.
+   654→   654→5. README/CHANGELOG son kodla uyumsuz.
+   655→   655→6. Sinyal “confidence” gerçek kalibre olasılık gibi gösteriliyor.
+   656→   656→
+   657→   657→---
+   658→   658→
+   659→   659→# 7. Fonksiyonları birbirine bağlamak için önerilen doğru mimari
+   660→   660→
+   661→   661→## 7.1 Hedef akış
+   662→   662→
+   663→   663→```mermaid
+   664→   664→flowchart LR
+   665→   665→  A[Exchange Adapters] --> B[MarketEvent Normalizer]
+   666→   666→  B --> C[Validator + Dedup + Sequence + Clock]
+   667→   667→  C --> D1[Trade Window]
+   668→   668→  C --> D2[OrderBook Service]
+   669→   669→  C --> D3[Canonical Price Sampler]
+   670→   670→  C --> D4[Liquidation Feed]
+   671→   671→
+   672→   672→  D1 --> E1[CVD]
+   673→   673→  D1 --> E2[VPIN]
+   674→   674→  D1 --> E3[Flow/Footprint]
+   675→   675→  D2 --> E4[OBI/Microprice/Depth]
+   676→   676→  D3 --> E5[Velocity/Volatility/Candles]
+   677→   677→
+   678→   678→  E1 --> F[FeatureFrame Builder 10Hz]
+   679→   679→  E2 --> F
+   680→   680→  E3 --> F
+   681→   681→  E4 --> F
+   682→   682→  E5 --> F
+   683→   683→  D4 --> G[Detector Registry]
+   684→   684→  D2 --> G
+   685→   685→  E3 --> G
+   686→   686→
+   687→   687→  G --> H[Detector Aggregator]
+   688→   688→  F --> I[Data Quality + Regime Gate]
+   689→   689→  H --> J[Score Model]
+   690→   690→  F --> J
+   691→   691→  I --> K[Filter/Risk Gateway]
+   692→   692→  J --> K
+   693→   693→  K --> L[Decision FSM]
+   694→   694→  L --> M[Approved Signal Bus]
+   695→   695→
+   696→   696→  M --> N1[Forward Tracker]
+   697→   697→  M --> N2[Trade Planner]
+   698→   698→  N2 --> N3[Position Sizer]
+   699→   699→  N3 --> N4[Paper Execution]
+
+[showing lines 300-699 of 981; use offset=700 with limit to continue reading]

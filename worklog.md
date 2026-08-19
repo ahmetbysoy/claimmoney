@@ -24,3 +24,35 @@ Stage Summary:
 - Dev server: running, page renders successfully
 - Modules: domain (4), infrastructure (2), features (8), book (2), detectors (10), strategy (4), risk (3), execution (2), performance (2) = 37 v3 modules
 - UI: 5 screens per SPEC.md section 5
+
+---
+Task ID: 2
+Agent: Main
+Task: P0 bug fixes + stub implementations + TierflowRuntime orchestrator
+
+Work Log:
+- Analyzed full codebase via Explore subagent (41 files, found 12 partial, 2 stubs, 3 critical bugs)
+- Fixed CVD z-score: added emaMean/emaStd online updates via history buffer + periodic memory prune
+- Implemented QuoteManipulationDetector: wall pull detection + high refresh rate spoofing + disappearance tracking
+- Implemented LiquidationClusterDetector: time-windowed cluster detection with long/short notional analysis
+- Fixed LiquidityVoidDetector: added bid+ask dual-side scanning with correct vacuum semantics
+- Fixed TradePlanner RR formula: changed from `risk/(slippage*2)` to `tp2R` (actual R:R)
+- Rewrote PaperBroker: partial exit at TP1 (50%), remaining to TP2, SL moves to breakeven, correct per-exit fee accounting, closed PnL tracking
+- Wired FlowFeature into FeatureFrameBuilder (was missing)
+- Fixed DetectorAggregator: added CompressionDetector, full reset coverage, exposed lastResults for diagnostics
+- Rewrote IcebergDetector: 60s trade lookback, proper sell-absorption=bullish / buy-absorption=bearish logic
+- Enhanced PortfolioRisk: total risk cap, per-trade risk cap, correlation exposure check
+- Fixed FlowFeature rollover trade loss: triggering trade now starts new bucket
+- Fixed MicropriceFeature: now computes actual ageMs
+- Created TierflowRuntime orchestrator: single entrypoint pipeline (Event→Features→Detectors→Score→Filter→FSM→Signal→Paper)
+- Filters run BEFORE FSM (P0 fix from analysis)
+- Added 7 new test files: CVD z-score (5), QuoteManip (4), Paper partial (6), Planner RR (4), Void bid+ask (3), Iceberg buy/sell (3), Runtime integration (5)
+- All 131 tests passing, production build successful
+
+Stage Summary:
+- 43 test files, 131 tests, 0 failures
+- Production build: successful (Next.js 16.1.3 Turbopack)
+- 2 stubs → full implementations (QuoteManipulation, LiquidationCluster)
+- 7 critical bugs fixed (CVD z-score, TradePlanner RR, PaperBroker fees, LiquidityVoid bid-only, FlowFeature not wired, DetectorAggregator incomplete, FlowFeature rollover)
+- New: TierflowRuntime orchestrator (tierflow-runtime.ts)
+- Total v3 modules: 38 (37 + TierflowRuntime)
