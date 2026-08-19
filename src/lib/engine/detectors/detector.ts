@@ -1,5 +1,3 @@
-import type { DetectorResult, DetectorContext } from './detector';
-
 export interface DetectorResult {
   detector: string;
   side: 'bullish' | 'bearish' | 'neutral';
@@ -19,4 +17,10 @@ export interface DetectorContext {
   flowPressure: number;
   vpin: number;
   eventTs: number;
+}
+
+export interface BaseDetector {
+  name: string;
+  detect(ctx: DetectorContext): DetectorResult;
+  reset?(): void;
 }

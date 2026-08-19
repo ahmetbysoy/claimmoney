@@ -3,7 +3,7 @@ import { onlineEMA, robustStd } from './statistics';
 
 export class VolatilityFeature {
   private returns: number[] = [];
-  private emaVol: number;
+  private emaVol: number = 0;
   private alpha: number;
   private prevPrice = 0;
   private count = 0;

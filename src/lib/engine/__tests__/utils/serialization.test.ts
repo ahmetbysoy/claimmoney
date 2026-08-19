@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { serializeSession, deserializeSession, computeChecksum } from '@/lib/engine/serialization';
+import { serializeSession, deserializeSession } from '@/lib/engine/serialization';
 import type { TradingSession } from '@/lib/engine/types';
 import { resetIdCounter, generateId } from '@/lib/engine/helpers';
 
@@ -41,10 +41,10 @@ describe('Serialization', () => {
     expect(deserialized!.name).toBe('test-session');
     expect(deserialized!.startEquity).toBe(10000);
 
-    // Tamper with the data
-    const tampered = json.replace('test-session', 'tampered');
-    const tamperedResult = deserializeSession(tampered);
-    expect(tamperedResult).toBeNull();
+    // Tamper with the checksum
+    const parsed = JSON.parse(json);
+    parsed.checksum = 'deadbeef';
+    expect(() => deserializeSession(JSON.stringify(parsed))).toThrow('Checksum mismatch');
   });
 
   it('roundtrips a session correctly', () => {

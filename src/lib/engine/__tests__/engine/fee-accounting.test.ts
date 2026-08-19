@@ -3,7 +3,7 @@ import { FeeAccounting } from '@/lib/engine/fee-accounting';
 
 describe('FeeAccounting', () => {
   it('calculates maker and taker fees', () => {
-    const fa = new FeeAccounting({ makerRate: 0.0002, takerRate: 0.0005 });
+    const fa = new FeeAccounting(0.0002, 0.0005);
     const makerFee = fa.calculateFee(10, 100, true);
     const takerFee = fa.calculateFee(10, 100, false);
     // maker: 10 * 100 * 0.0002 = 0.2

@@ -8,25 +8,31 @@ export class LadderDetector {
   detect(ctx: DetectorContext): DetectorResult {
     const bidWalls = this.findWalls(ctx.bids, 'bullish');
     const askWalls = this.findWalls(ctx.asks, 'bearish');
-    const bidResult = this.checkLadder(bidWalls);
-    const askResult = this.checkLadder(askWalls);
+    const bidResult = this.checkLadder(bidWalls.walls, bidWalls.side);
+    const askResult = this.checkLadder(askWalls.walls, askWalls.side);
     return bidResult.confidence >= askResult.confidence ? bidResult : askResult;
   }
 
-  private findWalls(levels: { price: number; qty: number }[], side: 'bullish' | 'bearish'): { walls: { price: number; qty: number }[]; confidence: number; side: 'bullish' | 'bearish' } {
+  private findWalls(levels: { price: number; qty: number }[], side: 'bullish' | 'bearish'): { walls: { price: number; qty: number }[]; side: 'bullish' | 'bearish' } {
     const qtys = levels.slice(0, 15).map(l => l.qty);
     const medQty = this.median(qtys);
-    if (medQty === 0) return { detector: this.name, side: 'neutral', confidence: 0, evidence: { wallCount: 0 } };
+    if (medQty === 0) return { walls: [], side };
     const walls: { price: number; qty: number }[] = [];
     for (const lvl of levels) {
       if (lvl.qty >= medQty * 2) walls.push({ price: lvl.price, qty: lvl.qty });
     }
-    return { walls, side, confidence: Math.min(walls.length / 5, 0.8) };
+    return { walls, side };
   }
 
-  private checkLadder(walls: { price: number; qty: number }[]): DetectorResult {
+  private median(arr: number[]): number {
+    if (arr.length === 0) return 0;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  private checkLadder(walls: { price: number; qty: number }[], side: 'bullish' | 'bearish'): DetectorResult {
     if (walls.length < this.minWalls) return { detector: this.name, side: 'neutral', confidence: 0, evidence: { wallCount: walls.length } };
-    if (walls.length < 2) return { detector: this.name, side: 'neutral', confidence: 0, evidence: {} };
     const prices = walls.map(w => w.price);
     const spacings: number[] = [];
     for (let i = 1; i < prices.length; i++) spacings.push(Math.abs(prices[i] - prices[i - 1]));

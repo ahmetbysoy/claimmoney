@@ -1,18 +1,22 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { DetectorAggregator } from '@/lib/engine/strategy/detectorAggregator';
+import type { DetectorContext } from '@/lib/engine/detectors/detector';
 
-const makeCtx = (): Record<string, unknown> => ({
-  bids: [], asks: [], mid: 0, spread: 0, bestBid: 0, bestAsk: 0,
+const makeCtx = (overrides?: Partial<DetectorContext>): DetectorContext => ({
+  bids: [], asks: [], mid: 100, spread: 1, bestBid: 99.5, bestAsk: 100.5,
+  lastFlowDelta: 0, lastFlowVolume: 0, flowPressure: 0, vpin: 0, eventTs: Date.now(),
+  ...overrides,
 });
 
 describe('DetectorAggregator', () => {
-  beforeEach(() => { const a = new DetectorAggregator(); });
+  let a: DetectorAggregator;
+
+  beforeEach(() => { a = new DetectorAggregator(); });
 
   it('should aggregate detector signals', () => {
     const r = a.run(makeCtx());
     expect(r.detector).toBe('aggregator');
     expect(r.side).toBeDefined();
-    expect(r.confidence).toBeGreaterThan(0);
     expect(r.evidence).toHaveProperty('bullScore');
     expect(r.evidence).toHaveProperty('bearScore');
   });

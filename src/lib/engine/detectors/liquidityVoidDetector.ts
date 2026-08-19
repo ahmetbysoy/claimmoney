@@ -17,15 +17,15 @@ export class LiquidityVoidDetector {
     const maxGap = Math.max(...gaps);
     if (maxGap < avgGap * this.gapMultiplier) {
       return { detector: this.name, side: 'neutral', confidence: 0, evidence: { maxGap, avgGap } };
+    }
     // Void = vacuum risk — direction = vacuum side
-    const voidSide = levels.findIndex((l, i) => l.price === maxGap) > -1;
-    const side = voidSide >= 0 ? 'ask' : 'bid';
-    const vacSide = side === 'bid' ? 'bearish' : 'bullish';
+    const voidIdx = gaps.indexOf(maxGap);
+    const vacSide = voidIdx % 2 === 0 ? 'bearish' : 'bullish';
     return {
       detector: this.name,
       side: vacSide,
       confidence: Math.min(maxGap / (avgGap * 5), 0.8),
-      evidence: { maxGap, avgGap, voidSide: voidSide === 'bid' ? 1 : -1 },
+      evidence: { maxGap, avgGap, voidIdx },
     };
   }
 

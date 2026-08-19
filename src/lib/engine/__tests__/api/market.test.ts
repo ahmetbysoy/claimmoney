@@ -24,8 +24,8 @@ describe('Market API', () => {
     rt.processCandle(candle);
     // Equivalent to POST /api/market/process
     const stats = rt.getStatistics();
-    expect(stats.totalCandles).toBe(1);
-    expect(stats.openPrice).toBe(100);
-    expect(stats.closePrice).toBe(102);
+    expect(stats.candles).toBe(1);
+    expect(stats.open).toBe(100);
+    expect(stats.close).toBe(102);
   });
 });

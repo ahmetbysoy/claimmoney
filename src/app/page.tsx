@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,506 +8,745 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
-  Activity, BarChart3, Shield, Play, FolderOpen, Settings,
+  Activity, BarChart3, Shield, Play, Square, FolderOpen,
   TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2,
   Zap, Target, Clock, DollarSign, Percent, LineChart,
+  Radio, Eye, BrainCircuit, Stethoscope, RefreshCcw,
 } from 'lucide-react';
 
-// --- Deterministic in-browser demo data ---
-function generateDemoCandles(n: number) {
-  const candles = [];
-  let price = 42000;
-  for (let i = 0; i < n; i++) {
-    const change = (Math.sin(i * 0.1) * 0.003) + (Math.cos(i * 0.05) * 0.002);
-    const open = price;
-    const close = price * (1 + change);
-    const high = Math.max(open, close) * (1 + Math.abs(Math.sin(i * 0.2)) * 0.002);
-    const low = Math.min(open, close) * (1 - Math.abs(Math.cos(i * 0.15)) * 0.002);
-    candles.push({ ts: 1000 + i * 60000, o: open, h: high, l: low, c: close, v: 100 + Math.sin(i) * 50 });
-    price = close;
-  }
-  return candles;
+// ============================================================
+// Types & Demo State
+// ============================================================
+
+interface FeatureBar {
+  label: string;
+  value: number;  // -2 to +2
+  valid: boolean;
+  warmup: number;
 }
 
-function computeStats(candles: { o: number; h: number; l: number; c: number; v: number }[]) {
-  const last = candles[candles.length - 1];
-  const prev = candles.length > 1 ? candles[candles.length - 2] : last;
-  const change = ((last.c - prev.c) / prev.c) * 100;
-  const high24 = Math.max(...candles.slice(-24).map(c => c.h));
-  const low24 = Math.min(...candles.slice(-24).map(c => c.l));
-  const totalVol = candles.slice(-24).reduce((s, c) => s + c.v, 0);
-  return { price: last.c, change, high24, low24, totalVol };
+interface SignalEntry {
+  id: string;
+  side: 'BUY' | 'SELL';
+  ts: number;
+  price: number;
+  score: number;
+  confidence: number;
+  filters: { id: string; pass: boolean; reason: string; mode: string }[];
 }
 
-// --- Sub-components ---
-function StatCard({ icon: Icon, label, value, sub, color }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; color?: string;
-}) {
+interface PositionEntry {
+  id: string;
+  side: 'BUY' | 'SELL';
+  entry: number;
+  current: number;
+  sl: number;
+  tp1: number;
+  tp2: number;
+  qty: number;
+  pnl: number;
+  rMult: number;
+  status: string;
+}
+
+interface DetectorEntry {
+  name: string;
+  side: 'bullish' | 'bearish' | 'neutral';
+  confidence: number;
+  ts: number;
+}
+
+function generateDemoFeatures(): FeatureBar[] {
+  return [
+    { label: 'CVD', value: 0.8 + Math.random() * 0.5, valid: true, warmup: 45 },
+    { label: 'OBI', value: -0.4 + Math.random() * 0.8, valid: true, warmup: 30 },
+    { label: 'VEL', value: 1.2 + Math.random() * 0.6, valid: true, warmup: 60 },
+    { label: 'MICRO', value: -0.2 + Math.random() * 0.4, valid: true, warmup: 20 },
+    { label: 'VPIN', value: Math.random() * 0.5, valid: true, warmup: 40 },
+    { label: 'DET', value: 0.5 + Math.random() * 1.0, valid: Math.random() > 0.3, warmup: 15 },
+  ];
+}
+
+function generateDemoSignals(): SignalEntry[] {
+  const sides: Array<'BUY' | 'SELL'> = ['BUY', 'SELL'];
+  return Array.from({ length: 12 }, (_, i) => ({
+    id: `sig-${i}`,
+    side: sides[i % 2],
+    ts: Date.now() - (12 - i) * 30000,
+    price: 62500 + Math.sin(i) * 500,
+    score: 0.4 + Math.random() * 0.5,
+    confidence: 0.3 + Math.random() * 0.5,
+    filters: [
+      { id: 'flat', pass: true, reason: '', mode: 'hard-veto' },
+      { id: 'obi', pass: i % 3 !== 0, reason: i % 3 === 0 ? 'OBI too low' : '', mode: 'hard-veto' },
+      { id: 'vpin', pass: true, reason: '', mode: 'hard-veto' },
+    ],
+  }));
+}
+
+function generateDemoPositions(): PositionEntry[] {
+  return [
+    { id: 'p1', side: 'BUY', entry: 62400, current: 62680, sl: 62100, tp1: 62800, tp2: 63300, qty: 0.05, pnl: 14, rMult: 0.7, status: 'open' },
+    { id: 'p2', side: 'SELL', entry: 63100, current: 62850, sl: 63400, tp1: 62700, tp2: 62200, qty: 0.03, pnl: 7.5, rMult: 0.5, status: 'tp1_hit' },
+  ];
+}
+
+function generateDemoDetectors(): DetectorEntry[] {
+  return [
+    { name: 'Wall', side: 'bullish', confidence: 0.7, ts: Date.now() - 5000 },
+    { name: 'Compression', side: 'neutral', confidence: 0.4, ts: Date.now() - 8000 },
+    { name: 'Skew', side: 'bullish', confidence: 0.3, ts: Date.now() - 3000 },
+    { name: 'Void', side: 'neutral', confidence: 0, ts: Date.now() - 20000 },
+    { name: 'Ladder', side: 'bearish', confidence: 0.2, ts: Date.now() - 12000 },
+    { name: 'Spoof', side: 'neutral', confidence: 0, ts: Date.now() - 30000 },
+    { name: 'Iceberg', side: 'bullish', confidence: 0.5, ts: Date.now() - 2000 },
+    { name: 'FlowExp', side: 'bearish', confidence: 0.6, ts: Date.now() - 1000 },
+    { name: 'LiqCluster', side: 'neutral', confidence: 0, ts: Date.now() - 60000 },
+  ];
+}
+
+// ============================================================
+// Sub-Components
+// ============================================================
+
+function FeatureBarChart({ features }: { features: FeatureBar[] }) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-3">
-        <div className={`rounded-lg p-2 ${color ?? 'bg-primary/10'}`}>
-          <Icon className={`h-4 w-4 ${color ? color.replace('bg-', 'text-') : 'text-primary'}`} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">{label}</p>
-          <p className="text-lg font-bold tracking-tight">{value}</p>
-          {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-        </div>
-      </div>
-    </Card>
+    <div className="space-y-2">
+      {features.map((f) => {
+        const pct = Math.min(100, Math.max(0, ((f.value + 2) / 4) * 100));
+        const isBull = f.value > 0.1;
+        const isBear = f.value < -0.1;
+        return (
+          <div key={f.label} className="flex items-center gap-3">
+            <span className="w-12 text-xs font-mono text-muted-foreground text-right">{f.label}</span>
+            <div className="flex-1 relative h-6 bg-muted rounded-sm overflow-hidden">
+              {/* Center line */}
+              <div className="absolute left-1/2 top-0 bottom-0 w-px bg-border z-10" />
+              {/* Fill from center */}
+              <div
+                className={`absolute top-0 h-full transition-all duration-300 ${
+                  isBull ? 'bg-emerald-500/70 left-1/2' : isBear ? 'bg-red-500/70 right-1/2' : 'bg-muted-foreground/20 left-[45%] w-[10%]'
+                }`}
+                style={{ width: `${Math.abs(pct - 50)}%` }}
+              />
+            </div>
+            <span className={`w-14 text-xs font-mono text-right ${!f.valid ? 'text-muted-foreground/50' : isBull ? 'text-emerald-400' : isBear ? 'text-red-400' : 'text-muted-foreground'}`}>
+              {f.valid ? f.value.toFixed(2) : '---'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
-function DetectorCard({ name, status, signals }: { name: string; status: boolean; signals: number }) {
+function ScoreGauge({ score }: { score: number }) {
+  const angle = score * 90; // -90 to +90
+  const color = score > 0.2 ? 'text-emerald-400' : score < -0.2 ? 'text-red-400' : 'text-yellow-400';
   return (
-    <Card className="p-3 flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <Zap className="h-4 w-4 text-amber-500" />
-        <span className="text-sm font-medium">{name}</span>
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-28 h-28">
+        <svg viewBox="0 0 100 60" className="w-full h-full">
+          {/* Background arc */}
+          <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="currentColor" strokeWidth="6" className="text-muted/30" strokeLinecap="round" />
+          {/* Score arc */}
+          <path
+            d="M 10 55 A 40 40 0 0 1 90 55"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="6"
+            strokeLinecap="round"
+            className={color}
+            strokeDasharray={`${Math.abs(angle) * 1.4} 200`}
+            strokeDashoffset={angle > 0 ? 0 : 0}
+            transform={angle >= 0 ? '' : `scale(-1,1) translate(-100,0)`}
+            style={{ opacity: Math.abs(score) * 2 }}
+          />
+          {/* Needle */}
+          <line
+            x1="50" y1="55"
+            x2="50" y2="20"
+            stroke="currentColor"
+            strokeWidth="2"
+            className={color}
+            transform={`rotate(${angle}, 50, 55)`}
+          />
+          <circle cx="50" cy="55" r="3" fill="currentColor" className={color} />
+        </svg>
       </div>
-      <div className="flex items-center gap-2">
-        <Badge variant="secondary" className="text-xs">{signals} signals</Badge>
-        <Badge variant={status ? 'default' : 'outline'} className="text-xs">
-          {status ? 'Active' : 'Off'}
-        </Badge>
-      </div>
-    </Card>
+      <span className={`text-2xl font-bold font-mono ${color}`}>{score.toFixed(3)}</span>
+      <span className="text-xs text-muted-foreground">Composite Score</span>
+    </div>
   );
 }
 
-// --- Main Page ---
+function SignalLed({ side, confidence, ts }: { side: 'BUY' | 'SELL' | null; confidence: number; ts: number }) {
+  if (!side) return <div className="flex items-center gap-2 text-muted-foreground"><Radio className="w-4 h-4" /> <span className="text-sm">No signal</span></div>;
+  const isBuy = side === 'BUY';
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-lg ${isBuy ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+      <div className={`w-3 h-3 rounded-full animate-pulse ${isBuy ? 'bg-emerald-400' : 'bg-red-400'}`} />
+      <div>
+        <span className={`font-bold text-lg ${isBuy ? 'text-emerald-400' : 'text-red-400'}`}>{side}</span>
+        <span className="text-xs text-muted-foreground ml-2">{new Date(ts).toLocaleTimeString()}</span>
+      </div>
+      <Badge variant="outline" className="ml-auto text-xs">{(confidence * 100).toFixed(0)}%</Badge>
+    </div>
+  );
+}
+
+// ============================================================
+// Tab 1: Radar (Main Screen)
+// ============================================================
+
+function RadarScreen() {
+  const [features, setFeatures] = useState<FeatureBar[]>(generateDemoFeatures);
+  const [score, setScore] = useState(0.65);
+  const [lastSignal, setLastSignal] = useState<SignalEntry | null>(null);
+  const [price, setPrice] = useState(62650.5);
+  const [connected, setConnected] = useState(true);
+  const [paperEnabled, setPaperEnabled] = useState(false);
+
+  // Simulate live updates
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setFeatures(generateDemoFeatures());
+      setScore(0.3 + Math.random() * 0.7 * (Math.random() > 0.3 ? 1 : -1));
+      setPrice(p => p + (Math.random() - 0.48) * 50);
+    }, 2000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const compositeScore = useMemo(() => {
+    let s = 0, w = 0;
+    const wts = [0.25, 0.15, 0.15, 0.1, 0.05, 0.3];
+    features.forEach((f, i) => { if (f.valid) { s += f.value * wts[i]; w += wts[i]; } });
+    return w > 0 ? Math.max(-1, Math.min(1, s / w)) : 0;
+  }, [features]);
+
+  const regime = compositeScore > 0.3 ? 'trending_up' : compositeScore < -0.3 ? 'trending_down' : 'ranging';
+  const regimeColors: Record<string, string> = { trending_up: 'bg-emerald-500/20 text-emerald-400', trending_down: 'bg-red-500/20 text-red-400', ranging: 'bg-yellow-500/20 text-yellow-400' };
+  const validCount = features.filter(f => f.valid).length;
+  const dq: 'good' | 'degraded' | 'invalid' = validCount >= 5 ? 'good' : validCount >= 3 ? 'degraded' : 'invalid';
+  const dqColors: Record<string, string> = { good: 'bg-emerald-500/20 text-emerald-400', degraded: 'bg-yellow-500/20 text-yellow-400', invalid: 'bg-red-500/20 text-red-400' };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* Left: Feature Bars */}
+      <Card className="lg:col-span-2">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium flex items-center gap-2"><Activity className="w-4 h-4" /> Feature Bars</CardTitle>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className={regimeColors[regime]}>{regime.replace('_', ' ').toUpperCase()}</Badge>
+              <Badge variant="outline" className={dqColors[dq]}>{dq.toUpperCase()}</Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <FeatureBarChart features={features} />
+          <Separator className="my-4" />
+          {/* Last Signal */}
+          <SignalLed side={lastSignal?.side ?? null} confidence={lastSignal?.confidence ?? 0} ts={lastSignal?.ts ?? Date.now()} />
+        </CardContent>
+      </Card>
+
+      {/* Right: Score Gauge + Price */}
+      <div className="space-y-4">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Score</CardTitle></CardHeader>
+          <CardContent className="flex justify-center"><ScoreGauge score={compositeScore} /></CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Market</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-mono font-bold">${price.toFixed(1)}</span>
+              <Badge variant={connected ? 'default' : 'destructive'} className="gap-1">
+                <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                {connected ? 'LIVE' : 'OFFLINE'}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>BTC-USDT-SWAP</span>
+              <span>{new Date().toLocaleTimeString()}</span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Paper Trading</span>
+              <button
+                onClick={() => setPaperEnabled(!paperEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${paperEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${paperEnabled ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Tab 2: Microstructure
+// ============================================================
+
+function MicrostructureScreen() {
+  const [detectors] = useState<DetectorEntry[]>(generateDemoDetectors);
+  const [signals] = useState<SignalEntry[]>(generateDemoSignals);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Detector Timeline */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><Eye className="w-4 h-4" /> Detector Timeline</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {detectors.map((d) => {
+              const isBull = d.side === 'bullish';
+              const isBear = d.side === 'bearish';
+              return (
+                <div key={d.name} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50">
+                  <span className={`w-2 h-2 rounded-full ${d.confidence > 0 ? (isBull ? 'bg-emerald-400' : 'bg-red-400') : 'bg-muted-foreground/30'}`} />
+                  <span className="w-24 text-sm font-mono text-muted-foreground">{d.name}</span>
+                  <div className="flex-1">
+                    <Progress value={d.confidence * 100} className="h-2" />
+                  </div>
+                  <Badge variant="outline" className={`text-xs ${isBull ? 'border-emerald-500/30 text-emerald-400' : isBear ? 'border-red-500/30 text-red-400' : 'text-muted-foreground'}`}>
+                    {d.side}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground w-16 text-right">{(d.confidence * 100).toFixed(0)}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Filter Decisions */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><Shield className="w-4 h-4" /> Filter Decisions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="max-h-96">
+            <div className="space-y-3">
+              {signals.slice(0, 8).map((s) => (
+                <div key={s.id} className="p-3 rounded-md border">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className={s.side === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}>{s.side}</Badge>
+                      <span className="text-xs font-mono text-muted-foreground">{new Date(s.ts).toLocaleTimeString()}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">score: {s.score.toFixed(3)}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {s.filters.map((f) => (
+                      <Badge key={f.id} variant={f.pass ? 'outline' : 'destructive'} className="text-xs">
+                        {f.id} {f.pass ? <CheckCircle2 className="w-3 h-3 ml-1" /> : <AlertTriangle className="w-3 h-3 ml-1" />}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Order Book Heatmap (simplified) */}
+      <Card className="lg:col-span-2">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><BarChart3 className="w-4 h-4" /> Order Book Depth</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            {/* Bids */}
+            <div className="flex-1 space-y-1">
+              <div className="text-xs font-medium text-emerald-400 mb-2">BIDS</div>
+              {Array.from({ length: 10 }, (_, i) => {
+                const p = 62650 - (i + 1) * 0.5;
+                const qty = (Math.random() * 5 + 0.5) * (i === 3 ? 8 : 1);
+                const maxQty = 40;
+                return (
+                  <div key={i} className="flex items-center gap-2 text-xs font-mono">
+                    <span className="w-16 text-right text-muted-foreground">{p.toFixed(1)}</span>
+                    <div className="flex-1 h-4 bg-muted rounded-sm overflow-hidden">
+                      <div className="h-full bg-emerald-500/40 rounded-sm" style={{ width: `${(qty / maxQty) * 100}%` }} />
+                    </div>
+                    <span className="w-12 text-right">{qty.toFixed(1)}</span>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Asks */}
+            <div className="flex-1 space-y-1">
+              <div className="text-xs font-medium text-red-400 mb-2">ASKS</div>
+              {Array.from({ length: 10 }, (_, i) => {
+                const p = 62651 + i * 0.5;
+                const qty = (Math.random() * 5 + 0.5) * (i === 5 ? 10 : 1);
+                const maxQty = 50;
+                return (
+                  <div key={i} className="flex items-center gap-2 text-xs font-mono">
+                    <span className="w-16 text-right">{p.toFixed(1)}</span>
+                    <div className="flex-1 h-4 bg-muted rounded-sm overflow-hidden">
+                      <div className="h-full bg-red-500/40 rounded-sm ml-auto" style={{ width: `${(qty / maxQty) * 100}%` }} />
+                    </div>
+                    <span className="w-12 text-right text-muted-foreground">{qty.toFixed(1)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// Tab 3: Plan & Risk
+// ============================================================
+
+function PlanRiskScreen() {
+  const positions = useMemo(() => generateDemoPositions(), []);
+
+  const totalPnL = positions.reduce((s, p) => s + p.pnl, 0);
+  const openCount = positions.filter(p => p.status === 'open').length;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">Open Positions</div><div className="text-2xl font-bold font-mono">{openCount}</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">Total PnL</div><div className={`text-2xl font-bold font-mono ${totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>${totalPnL.toFixed(2)}</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">Portfolio Heat</div><div className="text-2xl font-bold font-mono">{(openCount * 2).toFixed(0)}%</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-xs text-muted-foreground">Max Daily Loss</div><div className="text-2xl font-bold font-mono">$500</div></CardContent></Card>
+      </div>
+
+      {/* Positions Table */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><Target className="w-4 h-4" /> Open Positions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-muted-foreground text-xs">
+                  <th className="text-left py-2 px-2">Side</th>
+                  <th className="text-right py-2 px-2">Entry</th>
+                  <th className="text-right py-2 px-2">Current</th>
+                  <th className="text-right py-2 px-2">Stop</th>
+                  <th className="text-right py-2 px-2">TP1</th>
+                  <th className="text-right py-2 px-2">TP2</th>
+                  <th className="text-right py-2 px-2">Qty</th>
+                  <th className="text-right py-2 px-2">PnL</th>
+                  <th className="text-right py-2 px-2">R</th>
+                  <th className="text-right py-2 px-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((p) => (
+                  <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="py-2 px-2"><Badge className={p.side === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}>{p.side}</Badge></td>
+                    <td className="text-right font-mono py-2 px-2">{p.entry.toFixed(1)}</td>
+                    <td className="text-right font-mono py-2 px-2">{p.current.toFixed(1)}</td>
+                    <td className="text-right font-mono py-2 px-2 text-red-400">{p.sl.toFixed(1)}</td>
+                    <td className="text-right font-mono py-2 px-2 text-emerald-400">{p.tp1.toFixed(1)}</td>
+                    <td className="text-right font-mono py-2 px-2 text-emerald-400">{p.tp2.toFixed(1)}</td>
+                    <td className="text-right font-mono py-2 px-2">{p.qty}</td>
+                    <td className={`text-right font-mono py-2 px-2 ${p.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>${p.pnl.toFixed(2)}</td>
+                    <td className="text-right font-mono py-2 px-2">{p.rMult.toFixed(1)}R</td>
+                    <td className="text-right py-2 px-2"><Badge variant="outline" className="text-xs">{p.status}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Trade Plan Template */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><LineChart className="w-4 h-4" /> Trade Plan Template</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 text-sm">
+            <div><span className="text-xs text-muted-foreground">Entry</span><div className="font-mono">$62,650</div></div>
+            <div><span className="text-xs text-muted-foreground">Stop Loss</span><div className="font-mono text-red-400">$62,100</div></div>
+            <div><span className="text-xs text-muted-foreground">TP1 (1R)</span><div className="font-mono text-emerald-400">$63,200</div></div>
+            <div><span className="text-xs text-muted-foreground">TP2 (2.5R)</span><div className="font-mono text-emerald-400">$63,775</div></div>
+            <div><span className="text-xs text-muted-foreground">Risk/Reward</span><div className="font-mono">2.5</div></div>
+            <div><span className="text-xs text-muted-foreground">Position Size</span><div className="font-mono">0.05 BTC</div></div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// Tab 4: Paper Trading
+// ============================================================
+
+function PaperTradingScreen() {
+  const [enabled, setEnabled] = useState(false);
+  const [tradeCount, setTradeCount] = useState(47);
+
+  const metrics = useMemo(() => ({
+    winRate: 57.4,
+    profitFactor: 1.65,
+    sharpe: 2.1,
+    maxDD: 4.2,
+    avgR: 0.8,
+    expectancy: 12.5,
+    totalPnL: 587.5,
+    startEquity: 10000,
+    currentEquity: 10587.5,
+  }), []);
+
+  const history = useMemo(() => Array.from({ length: 10 }, (_, i) => ({
+    id: `h${i}`,
+    side: i % 2 === 0 ? 'BUY' as const : 'SELL' as const,
+    entry: 62500 + Math.random() * 500,
+    exit: 62500 + (Math.random() - 0.4) * 800,
+    pnl: (Math.random() - 0.35) * 50,
+    r: (Math.random() - 0.3) * 3,
+    ts: Date.now() - (10 - i) * 600000,
+  })), []);
+
+  return (
+    <div className="space-y-4">
+      {/* Toggle + Equity */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium flex items-center gap-2"><Play className="w-4 h-4" /> Paper Trading</CardTitle>
+              <button
+                onClick={() => setEnabled(!enabled)}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  enabled ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                }`}
+              >
+                {enabled ? <><Square className="w-3 h-3" /> Stop</> : <><Play className="w-3 h-3" /> Start</>}
+              </button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div><div className="text-xs text-muted-foreground">Equity</div><div className="text-xl font-bold font-mono ${metrics.currentEquity >= metrics.startEquity ? 'text-emerald-400' : 'text-red-400'}">${metrics.currentEquity.toFixed(0)}</div></div>
+              <div><div className="text-xs text-muted-foreground">Total PnL</div><div className={`text-xl font-bold font-mono ${metrics.totalPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>${metrics.totalPnL > 0 ? '+' : ''}{metrics.totalPnL.toFixed(2)}</div></div>
+              <div><div className="text-xs text-muted-foreground">Trades</div><div className="text-xl font-bold font-mono">{tradeCount}</div></div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Performance</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {[
+              { label: 'Win Rate', value: `${metrics.winRate}%`, color: metrics.winRate > 50 ? 'text-emerald-400' : 'text-red-400' },
+              { label: 'Profit Factor', value: metrics.profitFactor.toFixed(2), color: metrics.profitFactor > 1 ? 'text-emerald-400' : 'text-red-400' },
+              { label: 'Sharpe Ratio', value: metrics.sharpe.toFixed(1), color: metrics.sharpe > 1.5 ? 'text-emerald-400' : 'text-yellow-400' },
+              { label: 'Max Drawdown', value: `${metrics.maxDD}%`, color: 'text-red-400' },
+              { label: 'Avg R-Multiple', value: `${metrics.avgR}R`, color: metrics.avgR > 0 ? 'text-emerald-400' : 'text-red-400' },
+            ].map(m => (
+              <div key={m.label} className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{m.label}</span>
+                <span className={`text-sm font-mono font-medium ${m.color}`}>{m.value}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Trade History */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><FolderOpen className="w-4 h-4" /> Trade History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="max-h-72">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b text-muted-foreground text-xs">
+                <th className="text-left py-2 px-2">Side</th>
+                <th className="text-right py-2 px-2">Entry</th>
+                <th className="text-right py-2 px-2">Exit</th>
+                <th className="text-right py-2 px-2">PnL</th>
+                <th className="text-right py-2 px-2">R</th>
+                <th className="text-right py-2 px-2">Time</th>
+              </tr></thead>
+              <tbody>
+                {history.map(h => (
+                  <tr key={h.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="py-2 px-2"><Badge className={h.side === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}>{h.side}</Badge></td>
+                    <td className="text-right font-mono py-2 px-2">{h.entry.toFixed(1)}</td>
+                    <td className="text-right font-mono py-2 px-2">{h.exit.toFixed(1)}</td>
+                    <td className={`text-right font-mono py-2 px-2 ${h.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>${h.pnl > 0 ? '+' : ''}{h.pnl.toFixed(2)}</td>
+                    <td className="text-right font-mono py-2 px-2">{h.r.toFixed(1)}R</td>
+                    <td className="text-right text-muted-foreground py-2 px-2">{new Date(h.ts).toLocaleTimeString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// Tab 5: Diagnostics
+// ============================================================
+
+function DiagnosticsScreen() {
+  const featureStatus = [
+    { name: 'CVD', valid: true, warmup: 45, ageMs: 120 },
+    { name: 'OBI', valid: true, warmup: 30, ageMs: 80 },
+    { name: 'Velocity', valid: true, warmup: 60, ageMs: 150 },
+    { name: 'Microprice', valid: true, warmup: 20, ageMs: 200 },
+    { name: 'VPIN', valid: true, warmup: 40, ageMs: 5000 },
+    { name: 'Detector Score', valid: false, warmup: 8, ageMs: 12000 },
+    { name: 'Volatility', valid: true, warmup: 55, ageMs: 100 },
+  ];
+
+  const wsStatus = { connected: true, latency: 12, reconnectCount: 0, lastMsgAt: Date.now() - 200, uptime: '02:34:12' };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Feature Validity */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><BrainCircuit className="w-4 h-4" /> Feature Warmup & Validity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {featureStatus.map(f => (
+              <div key={f.name} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/30">
+                <div className={`w-2.5 h-2.5 rounded-full ${f.valid ? 'bg-emerald-400' : 'bg-red-400 animate-pulse'}`} />
+                <span className="w-28 text-sm font-mono">{f.name}</span>
+                <div className="flex-1">
+                  <Progress value={Math.min(100, (f.warmup / 60) * 100)} className="h-2" />
+                </div>
+                <span className="text-xs text-muted-foreground w-14 text-right">{f.warmup}/60</span>
+                <span className={`text-xs w-16 text-right ${f.ageMs > 5000 ? 'text-yellow-400' : 'text-muted-foreground'}`}>{f.ageMs}ms</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* WS Health */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><Stethoscope className="w-4 h-4" /> Connection Health</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-3 rounded-md border">
+              <span className="text-xs text-muted-foreground">Status</span>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`w-2.5 h-2.5 rounded-full ${wsStatus.connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                <span className="font-mono text-sm">{wsStatus.connected ? 'CONNECTED' : 'DISCONNECTED'}</span>
+              </div>
+            </div>
+            <div className="p-3 rounded-md border">
+              <span className="text-xs text-muted-foreground">Latency</span>
+              <div className="font-mono text-sm mt-1">{wsStatus.latency}ms</div>
+            </div>
+            <div className="p-3 rounded-md border">
+              <span className="text-xs text-muted-foreground">Reconnects</span>
+              <div className="font-mono text-sm mt-1">{wsStatus.reconnectCount}</div>
+            </div>
+            <div className="p-3 rounded-md border">
+              <span className="text-xs text-muted-foreground">Uptime</span>
+              <div className="font-mono text-sm mt-1">{wsStatus.uptime}</div>
+            </div>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Data Staleness</span>
+            <Badge variant={wsStatus.lastMsgAt > Date.now() - 10000 ? 'default' : 'destructive'}>FRESH</Badge>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Heartbeat</span>
+            <Badge variant="outline"><Zap className="w-3 h-3 mr-1" /> OK</Badge>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Watchdog</span>
+            <Badge variant="outline"><CheckCircle2 className="w-3 h-3 mr-1" /> OK</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Strategy Version */}
+      <Card className="lg:col-span-2">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2"><RefreshCcw className="w-4 h-4" /> Strategy Info</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+            <div><span className="text-xs text-muted-foreground">Strategy Version</span><div className="font-mono mt-1">v3.0.0-tierflow</div></div>
+            <div><span className="text-xs text-muted-foreground">Frame Cadence</span><div className="font-mono mt-1">100ms (10Hz)</div></div>
+            <div><span className="text-xs text-muted-foreground">Detector Count</span><div className="font-mono mt-1">9 active</div></div>
+            <div><span className="text-xs text-muted-foreground">FSM State</span><div className="font-mono mt-1">IDLE</div></div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// Main Page
+// ============================================================
+
 export default function Home() {
-  const [candles] = useState(() => generateDemoCandles(200));
-  const stats = computeStats(candles);
-  const isUp = stats.change >= 0;
-
-  const detectors = [
-    { name: 'Mean Reversion', status: true, signals: 12 },
-    { name: 'Momentum', status: true, signals: 8 },
-    { name: 'Breakout', status: true, signals: 5 },
-    { name: 'Volume Spike', status: false, signals: 3 },
-  ];
-
-  const recentSignals = [
-    { id: 1, ts: '14:32:05', detector: 'Momentum', side: 'long' as const, symbol: 'BTC-USDT', confidence: 0.85, regime: 'trending_up' as const },
-    { id: 2, ts: '14:28:11', detector: 'Breakout', side: 'long' as const, symbol: 'ETH-USDT', confidence: 0.72, regime: 'trending_up' as const },
-    { id: 3, ts: '14:15:30', detector: 'Mean Reversion', side: 'short' as const, symbol: 'BTC-USDT', confidence: 0.68, regime: 'ranging' as const },
-    { id: 4, ts: '13:58:42', detector: 'Volume Spike', side: 'long' as const, symbol: 'SOL-USDT', confidence: 0.91, regime: 'volatile' as const },
-    { id: 5, ts: '13:45:20', detector: 'Momentum', side: 'short' as const, symbol: 'ETH-USDT', confidence: 0.63, regime: 'trending_down' as const },
-  ];
-
-  const positions = [
-    { id: 1, symbol: 'BTC-USDT', side: 'long' as const, entry: 42150, current: stats.price, size: 0.05, pnl: ((stats.price - 42150) * 0.05), r: 1.2, status: 'open' as const },
-    { id: 2, symbol: 'ETH-USDT', side: 'short' as const, entry: 2850, current: 2820, size: 0.5, pnl: 15, r: 0.8, status: 'tp1_hit' as const },
-  ];
-
-  const sessions = [
-    { id: 1, name: 'BTC Session #42', equity: 10250, startEq: 10000, dd: 0.032, wr: 0.62, sharpe: 1.8, trades: 28 },
-    { id: 2, name: 'Multi-Asset Run', equity: 9850, startEq: 10000, dd: 0.051, wr: 0.55, sharpe: 1.2, trades: 45 },
-    { id: 3, name: 'Walk-Forward Test', equity: 10100, startEq: 10000, dd: 0.018, wr: 0.58, sharpe: 2.1, trades: 12 },
-  ];
-
-  const riskConfig = { equity: 10000, riskPerTrade: 1, maxPos: 5, maxDailyLoss: 3, portfolioHeat: 2.4 };
-
-  const regimeLabel = (r: string) => {
-    const map: Record<string, { label: string; color: string }> = {
-      trending_up: { label: 'Trending Up', color: 'text-emerald-500' },
-      trending_down: { label: 'Trending Down', color: 'text-red-500' },
-      ranging: { label: 'Ranging', color: 'text-amber-500' },
-      volatile: { label: 'Volatile', color: 'text-orange-500' },
-    };
-    const m = map[r] ?? { label: r, color: 'text-muted-foreground' };
-    return m;
-  };
+  const [tab, setTab] = useState('radar');
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
+        <div className="container flex h-12 items-center justify-between px-4">
           <div className="flex items-center gap-3">
-            <Activity className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-bold tracking-tight">ClaimMoney</h1>
-            <Badge variant="outline" className="text-xs hidden sm:inline-flex">v2.0.0</Badge>
+            <Zap className="w-5 h-5 text-emerald-400" />
+            <span className="font-bold text-sm tracking-tight">ClaimMoney <span className="text-muted-foreground font-normal">v3</span></span>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-            <span className="hidden sm:inline">64/64 tests</span>
-            <Separator orientation="vertical" className="h-3" />
-            <span>Deterministic Engine</span>
+            <span className="hidden sm:inline">Tierflow Micro-Structure Engine</span>
+            <Badge variant="outline" className="text-xs gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              BTC-USDT-SWAP
+            </Badge>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Tabs defaultValue="dashboard" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 sm:w-auto sm:inline-grid">
-            <TabsTrigger value="dashboard" className="gap-1.5 text-xs sm:text-sm">
-              <BarChart3 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Dashboard</span><span className="sm:hidden">Dash</span>
-            </TabsTrigger>
-            <TabsTrigger value="signals" className="gap-1.5 text-xs sm:text-sm">
-              <Zap className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Signals</span><span className="sm:hidden">Sig</span>
-            </TabsTrigger>
-            <TabsTrigger value="risk" className="gap-1.5 text-xs sm:text-sm">
-              <Shield className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Risk</span>
-            </TabsTrigger>
-            <TabsTrigger value="replay" className="gap-1.5 text-xs sm:text-sm">
-              <Play className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Replay</span>
-            </TabsTrigger>
-            <TabsTrigger value="sessions" className="gap-1.5 text-xs sm:text-sm">
-              <FolderOpen className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Sessions</span><span className="sm:hidden">Ses</span>
-            </TabsTrigger>
+      {/* Content */}
+      <main className="container px-4 py-4">
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="mb-4 w-full sm:w-auto">
+            <TabsTrigger value="radar" className="gap-1.5"><Radio className="w-3.5 h-3.5" /> Radar</TabsTrigger>
+            <TabsTrigger value="micro" className="gap-1.5"><Eye className="w-3.5 h-3.5" /> Micro</TabsTrigger>
+            <TabsTrigger value="risk" className="gap-1.5"><Shield className="w-3.5 h-3.5" /> Risk</TabsTrigger>
+            <TabsTrigger value="paper" className="gap-1.5"><Play className="w-3.5 h-3.5" /> Paper</TabsTrigger>
+            <TabsTrigger value="diag" className="gap-1.5"><Stethoscope className="w-3.5 h-3.5" /> Diag</TabsTrigger>
           </TabsList>
 
-          {/* Dashboard Tab */}
-          <TabsContent value="dashboard" className="space-y-6">
-            {/* Price Overview */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard icon={DollarSign} label="BTC-USDT Price" value={`$${stats.price.toFixed(2)}`} sub={isUp ? '+' : '' + stats.change.toFixed(3) + '%'} color={isUp ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'} />
-              <StatCard icon={isUp ? TrendingUp : TrendingDown} label="24h Range" value={`${stats.low24.toFixed(0)} - ${stats.high24.toFixed(0)}`} sub="BTC-USDT" />
-              <StatCard icon={LineChart} label="Total Volume (24h)" value={stats.totalVol.toFixed(0)} sub="contracts" />
-              <StatCard icon={Target} label="Active Positions" value={`${positions.filter(p => p.status === 'open').length}/${positions.length}`} sub="open / total" />
-            </div>
-
-            {/* Positions & Regime */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <Card className="lg:col-span-2">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold">Open Positions</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {positions.map(pos => (
-                      <div key={pos.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                        <div className="flex items-center gap-3">
-                          {pos.side === 'long' ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : <TrendingDown className="h-4 w-4 text-red-500" />}
-                          <div>
-                            <p className="text-sm font-medium">{pos.symbol}</p>
-                            <p className="text-xs text-muted-foreground">{pos.side.toUpperCase()} @ ${pos.entry.toFixed(2)}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className={`text-sm font-semibold ${pos.pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {pos.pnl >= 0 ? '+' : ''}{pos.pnl.toFixed(2)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">{pos.r}R</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold">Market Regime</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="text-center py-4">
-                    <p className="text-3xl font-bold text-emerald-500">TRENDING UP</p>
-                    <p className="text-xs text-muted-foreground mt-1">Based on 200 candles analysis</p>
-                  </div>
-                  <Separator />
-                  <div className="space-y-2">
-                    {[
-                      { label: 'Trending Up', value: 45, color: 'bg-emerald-500' },
-                      { label: 'Ranging', value: 30, color: 'bg-amber-500' },
-                      { label: 'Volatile', value: 15, color: 'bg-orange-500' },
-                      { label: 'Trending Down', value: 10, color: 'bg-red-500' },
-                    ].map(r => (
-                      <div key={r.label} className="flex items-center gap-2">
-                        <span className="text-xs w-24 truncate">{r.label}</span>
-                        <Progress value={r.value} className="h-1.5 flex-1" />
-                        <span className="text-xs text-muted-foreground w-8 text-right">{r.value}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Detector Status */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Detector Registry</CardTitle>
-                <CardDescription className="text-xs">Signal detectors with real-time status</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {detectors.map(d => <DetectorCard key={d.name} {...d} />)}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Signals Tab */}
-          <TabsContent value="signals" className="space-y-6">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Signal Feed</CardTitle>
-                <CardDescription className="text-xs">Latest detected and filtered signals</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="max-h-96">
-                  <div className="space-y-2">
-                    {recentSignals.map(s => {
-                      const reg = regimeLabel(s.regime);
-                      return (
-                        <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                          <div className="flex items-center gap-3">
-                            {s.side === 'long'
-                              ? <TrendingUp className="h-4 w-4 text-emerald-500" />
-                              : <TrendingDown className="h-4 w-4 text-red-500" />}
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium">{s.symbol}</p>
-                                <Badge variant="outline" className="text-xs">{s.detector}</Badge>
-                              </div>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <Clock className="h-3 w-3 text-muted-foreground" />
-                                <span className="text-xs text-muted-foreground">{s.ts}</span>
-                                <span className={`text-xs ${reg.color}`}>{reg.label}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold">{(s.confidence * 100).toFixed(0)}%</p>
-                            <p className="text-xs text-muted-foreground">confidence</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Pipeline Filters</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { name: 'Regime Filter', passed: 28, rejected: 12 },
-                    { name: 'Max Positions', passed: 38, rejected: 2 },
-                    { name: 'Cooldown', passed: 35, rejected: 5 },
-                    { name: 'Confidence', passed: 32, rejected: 8 },
-                  ].map(f => (
-                    <div key={f.name} className="p-3 rounded-lg bg-muted/50 text-center">
-                      <p className="text-xs text-muted-foreground">{f.name}</p>
-                      <p className="text-lg font-bold text-emerald-500">{f.passed}</p>
-                      <p className="text-xs text-red-400">{f.rejected} rejected</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Risk Tab */}
-          <TabsContent value="risk" className="space-y-6">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard icon={Percent} label="Risk Per Trade" value={`${riskConfig.riskPerTrade}%`} sub="of equity" />
-              <StatCard icon={Shield} label="Max Positions" value={`${riskConfig.maxPos}`} sub="concurrent" />
-              <StatCard icon={AlertTriangle} label="Max Daily Loss" value={`${riskConfig.maxDailyLoss}%`} sub="circuit breaker" />
-              <StatCard icon={Activity} label="Portfolio Heat" value={`${riskConfig.portfolioHeat}%`} sub="total risk" />
-            </div>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Position Sizing Calculator</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Equity</p>
-                    <p className="text-2xl font-bold">$10,000</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Risk Amount (1%)</p>
-                    <p className="text-2xl font-bold text-amber-500">$100</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Position Size (at $100, SL $98)</p>
-                    <p className="text-2xl font-bold">50 units</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Fee & Slippage Model</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                  <div className="p-3 rounded-lg bg-muted/50">
-                    <p className="text-xs text-muted-foreground">Maker Fee</p>
-                    <p className="text-lg font-bold">0.02%</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
-                    <p className="text-xs text-muted-foreground">Taker Fee</p>
-                    <p className="text-lg font-bold">0.05%</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
-                    <p className="text-xs text-muted-foreground">Slippage</p>
-                    <p className="text-lg font-bold">1 bps</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
-                    <p className="text-xs text-muted-foreground">TP1 / TP2</p>
-                    <p className="text-lg font-bold">1R / 2R</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Replay Tab */}
-          <TabsContent value="replay" className="space-y-6">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Deterministic Replay Engine</CardTitle>
-                <CardDescription className="text-xs">Byte-equivalent replay with JSONL data source</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <StatCard icon={Play} label="Replay Mode" value="Deterministic" sub="no randomness" />
-                  <StatCard icon={Target} label="Byte Checksum" value="CRC32" sub="equivalence verified" />
-                  <StatCard icon={Clock} label="Data Source" value="JSONL" sub="line-delimited JSON" />
-                  <StatCard icon={CheckCircle2} label="Snapshot Mode" value="Enabled" sub="per-candle snapshots" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Replay Results</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  {[
-                    { label: 'Final Equity', value: '$10,245', sub: '+2.45%' },
-                    { label: 'Max Drawdown', value: '3.2%', sub: 'acceptable' },
-                    { label: 'Sharpe Ratio', value: '1.84', sub: 'good' },
-                    { label: 'Total Trades', value: '28', sub: 'completed' },
-                    { label: 'Win Rate', value: '62%', sub: 'above avg' },
-                    { label: 'Profit Factor', value: '1.65', sub: 'positive' },
-                  ].map(m => (
-                    <div key={m.label} className="p-3 rounded-lg bg-muted/50 text-center">
-                      <p className="text-xs text-muted-foreground">{m.label}</p>
-                      <p className="text-lg font-bold">{m.value}</p>
-                      <p className="text-xs text-muted-foreground">{m.sub}</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Data Quality Gate</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                  {[
-                    { label: 'Total Rows', value: '10,000' },
-                    { label: 'Valid', value: '9,985' },
-                    { label: 'Gaps', value: '8' },
-                    { label: 'Duplicates', value: '7' },
-                    { label: 'Quality Score', value: '97/100' },
-                  ].map(m => (
-                    <div key={m.label} className="p-3 rounded-lg bg-muted/50 text-center">
-                      <p className="text-xs text-muted-foreground">{m.label}</p>
-                      <p className="text-lg font-bold">{m.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Sessions Tab */}
-          <TabsContent value="sessions" className="space-y-6">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Trading Sessions</CardTitle>
-                <CardDescription className="text-xs">Import/export with CRC32 checksum verification</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="max-h-96">
-                  <div className="space-y-3">
-                    {sessions.map(s => (
-                      <div key={s.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-                        <div>
-                          <p className="text-sm font-medium">{s.name}</p>
-                          <p className="text-xs text-muted-foreground">{s.trades} trades</p>
-                        </div>
-                        <div className="grid grid-cols-4 gap-4 text-center">
-                          <div>
-                            <p className={`text-sm font-bold ${s.equity >= s.startEq ? 'text-emerald-500' : 'text-red-500'}`}>
-                              ${s.equity.toLocaleString()}
-                            </p>
-                            <p className="text-xs text-muted-foreground">Equity</p>
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold">{(s.dd * 100).toFixed(1)}%</p>
-                            <p className="text-xs text-muted-foreground">Max DD</p>
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold">{(s.wr * 100).toFixed(0)}%</p>
-                            <p className="text-xs text-muted-foreground">Win Rate</p>
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold">{s.sharpe.toFixed(1)}</p>
-                            <p className="text-xs text-muted-foreground">Sharpe</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Walk-Forward Analysis</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <p className="text-xs text-muted-foreground">Windows</p>
-                    <p className="text-lg font-bold">5</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <p className="text-xs text-muted-foreground">Agg. Sharpe</p>
-                    <p className="text-lg font-bold">1.6</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <p className="text-xs text-muted-foreground">Agg. Max DD</p>
-                    <p className="text-lg font-bold">4.1%</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
-                    <p className="text-xs text-muted-foreground">Robust</p>
-                    <p className="text-lg font-bold text-emerald-500">Yes</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+          <TabsContent value="radar"><RadarScreen /></TabsContent>
+          <TabsContent value="micro"><MicrostructureScreen /></TabsContent>
+          <TabsContent value="risk"><PlanRiskScreen /></TabsContent>
+          <TabsContent value="paper"><PaperTradingScreen /></TabsContent>
+          <TabsContent value="diag"><DiagnosticsScreen /></TabsContent>
         </Tabs>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t py-4 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
-          <p>ClaimMoney v2.0.0 — Deterministic Trading Platform</p>
-          <p>64 tests | 0 vulnerabilities | TypeScript strict</p>
-        </div>
-      </footer>
     </div>
   );
 }

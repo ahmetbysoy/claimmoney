@@ -8,6 +8,8 @@ interface HorizonSample {
   mfePct: number;
   maePct: number;
   realized: boolean;
+  side: 'BUY' | 'SELL';
+  entryPrice: number;
 }
 
 export class ForwardTracker {
@@ -22,6 +24,8 @@ export class ForwardTracker {
         signalTs: signal.eventTs,
         horizonMs: h,
         returnPct: 0, mfePct: 0, maePct: 0, realized: false,
+        side: signal.side,
+        entryPrice: signal.price,
       });
     }
     this.prune();
@@ -32,9 +36,9 @@ export class ForwardTracker {
       if (s.realized) continue;
       const elapsed = ts - s.signalTs;
       if (elapsed < s.horizonMs) {
-        const ret = s.signal.side === 'BUY'
-          ? (price - signal.price) / signal.price
-          : (signal.price - price) / signal.price;
+        const ret = s.side === 'BUY'
+          ? (price - s.entryPrice) / s.entryPrice
+          : (s.entryPrice - price) / s.entryPrice;
         s.returnPct = ret;
         s.mfePct = Math.max(s.mfePct, ret);
         s.maePct = Math.min(s.maePct, ret);
@@ -72,7 +76,7 @@ export class ForwardTracker {
         winRate: hs.length > 0 ? wins.length / hs.length : 0,
         avgReturn: returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0,
         expectancy: hs.length > 0 ? hs.reduce((s, x) => s + x.returnPct, 0) / hs.length : 0,
-        median,
+        medianReturn: median,
       };
     });
   }

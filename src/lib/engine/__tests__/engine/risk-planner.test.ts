@@ -28,8 +28,8 @@ describe('RiskPlanner', () => {
     const sl = planner.calculateStopLoss(100, 2, 1.5);
     expect(sl).toBe(97); // 100 - 2 * 1.5
 
-    const slShort = planner.calculateStopLoss(100, 2, 1.5, 'short');
-    expect(slShort).toBe(103); // 100 + 2 * 1.5
+    const slShort = planner.calculateStopLoss(100, -2, 1.5);
+    expect(slShort).toBe(103); // 100 - (-2) * 1.5
   });
 
   it('checks risk and rejects over-limit positions', () => {

@@ -4,7 +4,7 @@ import type { FeatureFrame } from '@/lib/engine/domain/frames';
 
 function makeFrame(overrides: Partial<FeatureFrame>): FeatureFrame {
   const inv = () => ({ value: 0, valid: false, warmup: Infinity, ageMs: Infinity });
-  return { id: 'test', symbol: 'BTC', eventTs: 1000, dataQuality: 'good', cvdZ: inv(), obi: inv(), velocityZ: inv(), microDev: inv(), vpin: inv(), detectorScore: inv(), volatility: inv() };
+  return { id: 'test', symbol: 'BTC', eventTs: 1000, dataQuality: 'good', cvdZ: inv(), obi: inv(), velocityZ: inv(), microDev: inv(), vpin: inv(), detectorScore: inv(), volatility: inv(), ...overrides };
 }
 
 describe('ScoreModel', () => {

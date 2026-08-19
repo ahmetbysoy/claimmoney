@@ -41,7 +41,6 @@ export class DecisionFSM {
           this.firstQualifiedAt = frameEventTs;
         }
         break;
-      }
       case 'ARMED': {
         if (candidateSide !== this.lastSide) {
           this.state = 'IDLE';

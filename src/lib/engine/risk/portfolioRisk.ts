@@ -20,4 +20,3 @@ export function checkPortfolioRisk(
   }
   return { allowed: true };
 }
-}

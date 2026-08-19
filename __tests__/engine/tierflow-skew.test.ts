@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { SkewDetector } from '@/lib/engine/detectors/skewDetector';
 import type { DetectorContext } from '@/lib/engine/detectors/detector';
 
 function makeCtx(overrides?: Partial<DetectorContext>): DetectorContext {
-  return { bids: [], asks: [], mid: 0, spread: 0, bestBid: 0, bestAsk: 0, ...overrides as Partial<DetectorContext> };
+  return {
+    bids: [], asks: [], mid: 100, spread: 1, bestBid: 99.5, bestAsk: 100.5,
+    lastFlowDelta: 0, lastFlowVolume: 0, flowPressure: 0, vpin: 0, eventTs: Date.now(),
+    ...overrides,
+  };
 }
 
 describe('SkewDetector', () => {

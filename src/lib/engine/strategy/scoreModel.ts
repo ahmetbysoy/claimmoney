@@ -12,7 +12,7 @@ export interface ScoreWeights {
 const DEFAULT_WEIGHTS: ScoreWeights = { wCVD: 0.25, wOBI: 0.15, wVelocity: 0.15, wMicro: 0.1, wVPIN: 0.05, wDetector: 0.3 };
 
 export function normalizeWeights(w: ScoreWeights): ScoreWeights {
-  const total = w.wCVD + w.wOBI + w.wVelocity + wMicro + wVPIN + wDetector;
+  const total = w.wCVD + w.wOBI + w.wVelocity + w.wMicro + w.wVPIN + w.wDetector;
   if (total <= 0) return DEFAULT_WEIGHTS;
   return {
     wCVD: w.wCVD / total, wOBI: w.wOBI / total, wVelocity: w.wVelocity / total,

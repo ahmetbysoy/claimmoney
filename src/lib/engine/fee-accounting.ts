@@ -20,7 +20,7 @@ export class FeeAccounting {
     slippageBps: number
   ): number {
     const slip = price * (slippageBps / 10000);
-    return side === 'buy' ? slip : -slip;
+    return side === 'long' ? slip : -slip;
   }
 
   calculateTotalCost(

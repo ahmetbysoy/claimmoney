@@ -36,14 +36,14 @@ export class WallDetector {
     const medQty = this.median(qtys);
     const threshold = medQty * this.qtyMultiplier;
     const notionalThreshold = 50000;
-    let result: DetectorResult = { detector: this.name, side: side === 'bid' ? 'bullish' : 'bearish', confidence: 0, evidence: { medQty } };
+    let result: DetectorResult = { detector: this.name, side: 'neutral', confidence: 0, evidence: { medQty } };
     for (const lvl of levels.slice(0, 15)) {
       if (lvl.qty < threshold || lvl.price * lvl.qty < notionalThreshold) continue;
       const key = side + '_' + lvl.price;
       const existing = this.walls.get(key);
       if (!existing) {
         this.walls.set(key, { price: lvl.price, side, qty: lvl.qty, initialQty: lvl.qty, seenAt: now, lastQty: lvl.qty, refreshCount: 0, state: 'appeared' });
-        result = { detector: this.name, side: result.side, confidence: 0.7, evidence: { wallPrice: lvl.price, wallQty: lvl.qty, wallSide: side === 'bid' ? 1 : -1, medQty } };
+        result = { detector: this.name, side: side === 'bid' ? 'bullish' : 'bearish', confidence: 0.7, evidence: { wallPrice: lvl.price, wallQty: lvl.qty, wallSide: side === 'bid' ? 1 : -1, medQty } };
         break;
       } else {
         existing.lastQty = lvl.qty;

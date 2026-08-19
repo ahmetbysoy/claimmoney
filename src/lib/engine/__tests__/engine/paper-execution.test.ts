@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { PaperExecution } from '@/lib/engine/paper-execution';
+import { FeeAccounting } from '@/lib/engine/fee-accounting';
 import { resetIdCounter, generateId } from '@/lib/engine/helpers';
-import type { Signal, RiskConfig, MarketState } from '@/lib/engine/types';
+import type { Signal, RiskConfig } from '@/lib/engine/types';
 
 const defaultRiskConfig: RiskConfig = {
   equity: 10000,
@@ -14,24 +15,15 @@ const defaultRiskConfig: RiskConfig = {
   defaultTP2R: 2,
 };
 
+function makeExec(slippageBps = 1) {
+  return new PaperExecution(new FeeAccounting(), defaultRiskConfig, slippageBps);
+}
+
 describe('PaperExecution', () => {
   it('executes a signal and creates a position', () => {
     resetIdCounter();
-    const exec = new PaperExecution(10000, 0);
-    const state: MarketState = {
-      currentPrice: 100,
-      previousPrice: 99,
-      vwap: 99.5,
-      atr: 2,
-      ema9: 99,
-      ema21: 98,
-      ema50: 97,
-      sma20: 98,
-      high: 102,
-      low: 96,
-      volume: 5000,
-      candleCount: 20,
-    };
+    const exec = makeExec();
+    const state = { atr: 2, currentPrice: 100 };
 
     const signal: Signal = {
       id: generateId('sig'),
@@ -54,21 +46,8 @@ describe('PaperExecution', () => {
 
   it('updates position and hits stop loss', () => {
     resetIdCounter();
-    const exec = new PaperExecution(10000, 0);
-    const state: MarketState = {
-      currentPrice: 100,
-      previousPrice: 99,
-      vwap: 99.5,
-      atr: 2,
-      ema9: 99,
-      ema21: 98,
-      ema50: 97,
-      sma20: 98,
-      high: 102,
-      low: 96,
-      volume: 5000,
-      candleCount: 20,
-    };
+    const exec = makeExec();
+    const state = { atr: 2, currentPrice: 100 };
 
     const signal: Signal = {
       id: generateId('sig'),
@@ -91,7 +70,7 @@ describe('PaperExecution', () => {
   });
 
   it('tracks equity correctly', () => {
-    const exec = new PaperExecution(10000);
+    const exec = makeExec();
     expect(exec.getEquity()).toBe(10000);
     exec.reset();
     expect(exec.getEquity()).toBe(10000);

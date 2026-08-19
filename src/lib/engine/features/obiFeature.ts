@@ -41,7 +41,7 @@ export class OBIFeature {
     const rawOBI = total > 0 ? (bidWeighted - askWeighted) / total : 0;
 
     const dt = this.lastTs > 0 ? ts - this.lastTs : this.tauMs;
-    const timeAlpha = dt > 0 ? 1 - Math.exp(-dt / this.tauMs) : this.alpha;
+    const timeAlpha = dt > 0 ? 1 - Math.exp(-dt / this.tauMs) : 0;
     this.prevOBI = onlineEMA(this.prevOBI, rawOBI, Math.min(timeAlpha, 1));
     this.lastTs = ts;
     this.count++;

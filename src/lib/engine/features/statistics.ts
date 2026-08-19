@@ -23,6 +23,13 @@ export function median(values: number[]): number {
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+export function mad(values: number[]): number {
+  if (values.length === 0) return 0;
+  const med = median(values);
+  const devs = values.map(v => Math.abs(v - med));
+  return median(devs);
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }

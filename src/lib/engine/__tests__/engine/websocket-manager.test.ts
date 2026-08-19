@@ -3,7 +3,7 @@ import { WebSocketManager } from '@/lib/engine/websocket-manager';
 
 describe('WebSocketManager', () => {
   it('initializes with default config and connects/disconnects', () => {
-    const mgr = new WebSocketManager({ heartbeatMs: 5000, watchdogMs: 10000, maxReconnectAttempts: 3 });
+    const mgr = new WebSocketManager({ heartbeatIntervalMs: 5000, watchdogTimeoutMs: 10000, maxReconnectAttempts: 3 });
     expect(mgr.isConnected()).toBe(false);
     expect(mgr.getStats()).toEqual({ messagesReceived: 0, reconnects: 0, uptime: 0 });
     // We can't actually connect in tests without a server, but we verify the API exists
@@ -12,7 +12,7 @@ describe('WebSocketManager', () => {
   });
 
   it('registers heartbeat and watchdog intervals correctly', () => {
-    const mgr = new WebSocketManager({ heartbeatMs: 1000, watchdogMs: 2000 });
+    const mgr = new WebSocketManager({ heartbeatIntervalMs: 1000, watchdogTimeoutMs: 2000 });
     // Verify that the manager is properly configured
     expect(mgr.isConnected()).toBe(false);
     expect(mgr.getStats().messagesReceived).toBe(0);

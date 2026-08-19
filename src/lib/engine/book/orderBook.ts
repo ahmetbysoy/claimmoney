@@ -1,5 +1,6 @@
 import type { Level } from '../domain/events';
-import type { ConnectionState } from '../domain/types';
+
+type ConnectionState = 'disconnected' | 'connected' | 'resyncing';
 
 export interface BookState {
   bids: Level[];

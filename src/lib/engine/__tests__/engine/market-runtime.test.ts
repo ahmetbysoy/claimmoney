@@ -13,8 +13,8 @@ describe('MarketRuntime', () => {
     const state = rt.getState();
     expect(state.currentPrice).toBe(102);
     expect(state.candleCount).toBe(1);
-    expect(state.high).toBe(105);
-    expect(state.low).toBe(95);
+    expect(state.high24h).toBe(105);
+    expect(state.low24h).toBe(95);
     expect(state.volume).toBe(1000);
   });
 
@@ -27,8 +27,8 @@ describe('MarketRuntime', () => {
     expect(state.currentPrice).toBe(109);
     expect(state.previousPrice).toBe(107);
     expect(state.candleCount).toBe(3);
-    expect(state.high).toBe(110);
-    expect(state.low).toBe(95);
+    expect(state.high24h).toBe(110);
+    expect(state.low24h).toBe(95);
   });
 
   it('resets all state cleanly', () => {
@@ -38,8 +38,8 @@ describe('MarketRuntime', () => {
     const state = rt.getState();
     expect(state.currentPrice).toBe(0);
     expect(state.candleCount).toBe(0);
-    expect(state.high).toBe(0);
-    expect(state.low).toBe(0);
+    expect(state.high24h).toBe(0);
+    expect(state.low24h).toBe(Infinity);
     expect(state.volume).toBe(0);
   });
 });

@@ -1,24 +1,43 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { LiquidityVoidDetector } from '@/lib/engine/detectors/liquidityVoidDetector';
+import type { DetectorContext } from '@/lib/engine/detectors/detector';
 
-function makeCtx(overrides?: Record<string, unknown>): Record<string, unknown> {
-  return { bids: [], asks: [], mid: 0, spread: 0, bestBid: 0, bestAsk: 0, ...overrides as Record<string, unknown> };
+function makeCtx(overrides?: Partial<DetectorContext>): DetectorContext {
+  return {
+    bids: [], asks: [], mid: 100, spread: 1, bestBid: 99.5, bestAsk: 100.5,
+    lastFlowDelta: 0, lastFlowVolume: 0, flowPressure: 0, vpin: 0, eventTs: Date.now(),
+    ...overrides,
+  };
 }
 
 describe('LiquidityVoidDetector', () => {
-  beforeEach(() => { const d = new LiquidityVoidDetector(); });
+  let d: LiquidityVoidDetector;
+
+  beforeEach(() => { d = new LiquidityVoidDetector(); });
 
   it('should return neutral for no gaps', () => {
-    const ctx = makeCtx({ bids: [{ price: 100, qty: 100 }], asks: [{ price: 100, qty: 100 }], mid: 100 });
+    const ctx = makeCtx({
+      bids: [
+        { price: 100, qty: 100 },
+        { price: 101, qty: 100 },
+        { price: 102, qty: 100 },
+      ],
+      asks: [{ price: 103, qty: 100 }],
+    });
     const result = d.detect(ctx);
     expect(result.side).toBe('neutral');
     expect(result.confidence).toBe(0);
   });
 
-describe('should detect void below ask', () => {
+  it('should detect void (bullish)', () => {
     const ctx = makeCtx({
-      bids: [{ price: 100, qty: 100 }],
-      asks: [{ price: 105, qty: 100 }],
+      bids: [
+        { price: 100, qty: 100 },
+        { price: 101, qty: 100 },
+        { price: 120, qty: 100 },
+        { price: 121, qty: 100 },
+      ],
+      asks: [{ price: 122, qty: 100 }],
     });
     const result = d.detect(ctx);
     expect(result.side).toBe('bullish');
