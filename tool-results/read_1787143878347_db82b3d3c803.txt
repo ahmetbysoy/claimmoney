@@ -1,0 +1,1360 @@
+     1→
+     2→
+     3→# BOZOK PRO v4.0 — Tam Implementasyon
+     4→# Bu dosya çok büyük olduğu için parça parça oluşturacağım
+     5→# Sonra birleştirip kaydedeceğim
+     6→
+     7→# PART 1: HTML Yapısı + CSS
+     8→html_part1 = '''<!DOCTYPE html>
+     9→<html lang="tr">
+    10→<head>
+    11→<meta charset="UTF-8">
+    12→<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+    13→<meta name="theme-color" content="#080c14">
+    14→<meta name="description" content="BOZOK PRO v4.0 — L2 Market Microstructure Terminal">
+    15→<title>BOZOK PRO v4.0</title>
+    16→<style>
+    17→:root{--bg0:#080c14;--bg1:#0f1520;--bg2:#151d2e;--bg3:#1a2436;--bg4:#202d42;--tx0:#e8edf5;--tx1:#8b9cb8;--tx2:#556a85;--grn:#00c896;--red:#ff4757;--yel:#ffa502;--blu:#3b82f6;--pur:#8b5cf6;--cyn:#06b6d4;--org:#f97316;--bdr:#1c2940;--nav-h:54px;--top-h:46px;--mono:'SF Mono','JetBrains Mono','Fira Code',monospace;--sans:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    18→*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    19→html,body{height:100%;overflow:hidden;position:fixed;width:100%}
+    20→body{font-family:var(--sans);background:var(--bg0);color:var(--tx0)}
+    21→.app{display:flex;flex-direction:column;height:100dvh}
+    22→
+    23→/* ── TOP BAR ── */
+    24→.top{height:var(--top-h);background:var(--bg1);border-bottom:1px solid var(--bdr);display:flex;align-items:center;padding:0 10px;gap:6px;flex-shrink:0;position:relative;z-index:20}
+    25→.sym-in{background:var(--bg2);border:1px solid var(--bdr);border-radius:4px;color:var(--tx0);font:700 12px var(--mono);padding:5px 8px;width:100px;outline:none}
+    26→.sym-in:focus{border-color:var(--blu)}
+    27→.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+    28→.dot.on{background:var(--grn);box-shadow:0 0 5px var(--grn)}
+    29→.dot.wait{background:var(--yel);animation:bl 1s infinite}
+    30→.dot.off{background:var(--red)}
+    31→@keyframes bl{0%,100%{opacity:1}50%{opacity:.3}}
+    32→.px{font:700 13px var(--mono);margin-left:auto}
+    33→.px.up{color:var(--grn)}.px.dn{color:var(--red)}
+    34→.badge{font:600 9px var(--mono);padding:2px 5px;border-radius:3px;background:var(--bg2);color:var(--tx1)}
+    35→.chg{font:600 10px var(--mono);padding:2px 5px;border-radius:3px}
+    36→.chg.p{background:rgba(0,200,150,.12);color:var(--grn)}
+    37→.chg.n{background:rgba(255,71,87,.12);color:var(--red)}
+    38→.regime{font:600 9px var(--mono);padding:2px 6px;border-radius:3px;background:var(--bg3);color:var(--yel);text-transform:uppercase;letter-spacing:.5px}
+    39→.regime.trending{color:var(--grn)}.regime.choppy{color:var(--yel)}.regime.coiling{color:var(--cyn)}.regime.chaos{color:var(--red)}.regime.dead{color:var(--tx2)}
+    40→
+    41→/* ── MAIN / PANELS ── */
+    42→.main{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;position:relative}
+    43→.panel{display:none;padding:10px;min-height:100%}
+    44→.panel.act{display:block}
+    45→
+    46→/* ── NAV ── */
+    47→.nav{height:var(--nav-h);background:var(--bg1);border-top:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-around;flex-shrink:0;padding-bottom:env(safe-area-inset-bottom);position:relative;z-index:20}
+    48→.ni{display:flex;flex-direction:column;align-items:center;gap:1px;padding:3px 5px;border-radius:4px;cursor:pointer;min-width:36px;position:relative;transition:transform .15s}
+    49→.ni:active{transform:scale(.9)}
+    50→.ni.act .nl{color:var(--blu)}
+    51→.ni.act .nk{transform:scale(1.15)}
+    52→.nk{font-size:16px;transition:transform .15s}
+    53→.nl{font:600 8px var(--sans);color:var(--tx2)}
+    54→.nb{position:absolute;top:-3px;right:0;background:var(--red);color:#fff;font:700 8px var(--sans);min-width:13px;height:13px;border-radius:7px;display:flex;align-items:center;justify-content:center;padding:0 2px}
+    55→
+    56→/* ── CARDS ── */
+    57→.cd{background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;padding:10px;margin-bottom:8px}
+    58→.ct{font:700 10px var(--sans);text-transform:uppercase;letter-spacing:.4px;color:var(--tx1);margin-bottom:7px;display:flex;align-items:center;gap:6px}
+    59→.ct .cti{font-size:11px}
+    60→.mg{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+    61→.mg.c3{grid-template-columns:repeat(3,1fr)}
+    62→.mi{background:var(--bg3);border-radius:4px;padding:7px;text-align:center;position:relative}
+    63→.ml{font:600 8px var(--sans);color:var(--tx2);text-transform:uppercase}
+    64→.mv{font:700 13px var(--mono);margin-top:2px}
+    65→.mv.g{color:var(--grn)}.mv.r{color:var(--red)}.mv.y{color:var(--yel)}.mv.b{color:var(--blu)}.mv.c{color:var(--cyn)}.mv.o{color:var(--org)}.mv.p{color:var(--pur)}
+    66→
+    67→/* ── CANVAS ── */
+    68→.cc{width:100%;border-radius:6px;overflow:hidden;background:var(--bg3);position:relative;touch-action:none}
+    69→.cc canvas{width:100%;height:100%;display:block}
+    70→
+    71→/* ── SIGNAL CARDS ── */
+    72→.sc{background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;padding:9px;margin-bottom:7px;border-left:3px solid var(--tx2);animation:fi .15s ease;cursor:pointer;position:relative}
+    73→.sc.bu{border-left-color:var(--grn)}.sc.be{border-left-color:var(--red)}.sc.wa{border-left-color:var(--yel)}
+    74→.sc.verified::after{content:'✓';position:absolute;top:4px;right:6px;font:700 8px var(--mono);color:var(--grn)}
+    75→.sc.missed::after{content:'✗';position:absolute;top:4px;right:6px;font:700 8px var(--mono);color:var(--red)}
+    76→@keyframes fi{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+    77→.sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+    78→.st{font:700 10px var(--sans)}.scf{font:600 9px var(--mono);padding:1px 5px;border-radius:3px;background:var(--bg3)}
+    79→.sd{font:400 10px var(--sans);color:var(--tx1)}.stm{font:400 8px var(--sans);color:var(--tx2);margin-top:3px}
+    80→
+    81→/* ── DEPTH LADDER ── */
+    82→.dr{display:grid;grid-template-columns:1fr 1fr 1fr;padding:2px 0;font:400 10px var(--mono);position:relative}
+    83→.dr.a{color:var(--red)}.dr.b{color:var(--grn)}
+    84→.dr .br{position:absolute;top:0;bottom:0;opacity:.08;border-radius:1px}
+    85→.dr.a .br{right:0;background:var(--red)}.dr.b .br{left:0;background:var(--grn)}
+    86→
+    87→/* ── FILTERS ── */
+    88→.fb{display:flex;gap:5px;margin-bottom:8px;flex-wrap:wrap}
+    89→.fbt{font:600 9px var(--sans);padding:3px 7px;border-radius:4px;background:var(--bg3);border:1px solid var(--bdr);color:var(--tx1);cursor:pointer;transition:background .15s}
+    90→.fbt.act{background:var(--blu);color:#fff;border-color:var(--blu)}
+    91→
+    92→/* ── SETTINGS ── */
+    93→.sg{margin-bottom:14px}
+    94→.sgt{font:700 11px var(--sans);color:var(--blu);margin-bottom:6px;padding-bottom:3px;border-bottom:1px solid var(--bdr)}
+    95→.sr{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(28,41,64,.5)}
+    96→.sl{font:400 11px var(--sans);color:var(--tx1)}
+    97→.si{background:var(--bg3);border:1px solid var(--bdr);border-radius:4px;color:var(--tx0);font:400 11px var(--mono);padding:4px 7px;width:75px;text-align:right;outline:none}
+    98→.si:focus{border-color:var(--blu)}
+    99→select.si{width:110px;text-align:left}
+   100→.tg{width:38px;height:20px;background:var(--bg3);border-radius:10px;position:relative;cursor:pointer;border:1px solid var(--bdr);transition:background .2s}
+   101→.tg.on{background:var(--blu)}
+   102→.tg::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:transform .2s}
+   103→.tg.on::after{transform:translateX(16px)}
+   104→
+   105→/* ── PLAN / LEVELS ── */
+   106→.pd{font:800 15px var(--mono);margin-bottom:6px}
+   107→.pd.l{color:var(--grn)}.pd.s{color:var(--red)}.pd.n{color:var(--tx2)}
+   108→.pl{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:7px}
+   109→.pli{font:400 10px var(--mono);padding:4px 7px;border-radius:4px;background:var(--bg0)}
+   110→.pli.e{border-left:2px solid var(--blu)}.pli.s{border-left:2px solid var(--red)}.pli.t{border-left:2px solid var(--grn)}.pli.b{border-left:2px solid var(--yel)}
+   111→
+   112→/* ── NARRATIVE ── */
+   113→.nbx{background:var(--bg3);border-radius:6px;padding:10px;font:400 11px var(--sans);line-height:1.5;color:var(--tx1);border-left:3px solid var(--pur)}
+   114→
+   115→/* ── EXCHANGE CARDS ── */
+   116→.exc{background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;padding:9px;margin-bottom:7px}
+   117→.exn{font:700 11px var(--sans);margin-bottom:5px;display:flex;align-items:center;gap:5px}
+   118→.exs{width:6px;height:6px;border-radius:50%}
+   119→.exs.lv{background:var(--grn)}.exs.er{background:var(--red)}
+   120→.exd{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;font:400 9px var(--mono)}
+   121→.exd span{color:var(--tx1)}
+   122→
+   123→/* ── PERF STATS ── */
+   124→.ps{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(28,41,64,.5);font:400 11px var(--sans)}
+   125→.ps:last-child{border-bottom:none}
+   126→.plb{color:var(--tx1)}.pv{font:600 11px var(--mono)}
+   127→
+   128→/* ── HEATMAP LEGEND ── */
+   129→.hl{display:flex;align-items:center;gap:3px;margin-top:5px;font-size:8px;color:var(--tx2)}
+   130→.hlg{width:70px;height:7px;border-radius:4px}
+   131→
+   132→/* ── ALERTS ── */
+   133→.ab{background:rgba(255,165,2,.08);border:1px solid rgba(255,165,2,.25);border-radius:4px;padding:7px 9px;font:600 10px var(--sans);color:var(--yel);margin-bottom:8px;display:none}
+   134→.ab.vis{display:block}
+   135→
+   136→/* ── STALE OVERLAY ── */
+   137→.stale-ov{position:absolute;inset:0;background:rgba(8,12,20,.88);display:none;align-items:center;justify-content:center;z-index:10;border-radius:6px}
+   138→.stale-ov.vis{display:flex}
+   139→.stale-tx{font:600 11px var(--sans);color:var(--yel)}
+   140→
+   141→/* ── EMPTY STATE ── */
+   142→.es{text-align:center;padding:35px 15px;color:var(--tx2)}
+   143→.esi{font-size:28px;margin-bottom:6px}.est{font-size:11px}
+   144→
+   145→/* ── ERROR BANNER ── */
+   146→.err-ban{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.3);border-radius:4px;padding:6px 10px;font:600 10px var(--sans);color:var(--red);margin-bottom:8px;display:none;align-items:center;gap:6px}
+   147→.err-ban.vis{display:flex}
+   148→.err-ban .err-x{margin-left:auto;cursor:pointer;font-size:14px}
+   149→
+   150→/* ── PLAN STATE BADGE ── */
+   151→.pl-st{font:600 9px var(--mono);padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.3px}
+   152→.pl-st.candidate{background:rgba(59,130,246,.15);color:var(--blu)}
+   153→.pl-st.armed{background:rgba(6,182,212,.15);color:var(--cyn)}
+   154→.pl-st.open{background:rgba(0,200,150,.15);color:var(--grn)}
+   155→.pl-st.closed{background:rgba(255,71,87,.15);color:var(--red)}
+   156→.pl-st.expired{background:rgba(139,92,246,.15);color:var(--pur)}
+   157→
+   158→/* ── CONFIDENCE BREAKDOWN ── */
+   159→.cb{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+   160→.cbi{font:600 8px var(--mono);padding:2px 5px;border-radius:3px;background:var(--bg0);color:var(--tx1)}
+   161→.cbi.high{color:var(--grn)}.cbi.med{color:var(--yel)}.cbi.low{color:var(--red)}
+   162→
+   163→/* ── CONFLUENCE CHIPS ── */
+   164→.ch{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
+   165→.chi{font:600 8px var(--sans);padding:2px 5px;border-radius:3px;background:var(--bg0);border:1px solid var(--bdr);color:var(--tx1)}
+   166→.chi.on{border-color:var(--grn);color:var(--grn)}
+   167→
+   168→/* ── DRAWER / BOTTOM SHEET ── */
+   169→.dw{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:none;align-items:flex-end;justify-content:center}
+   170→.dw.vis{display:flex}
+   171→.dwc{background:var(--bg1);border-top:1px solid var(--bdr);border-radius:12px 12px 0 0;width:100%;max-height:70vh;overflow-y:auto;padding:12px;animation:du .2s ease}
+   172→@keyframes du{from{transform:translateY(100%)}to{transform:translateY(0)}}
+   173→.dwh{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--bdr)}
+   174→.dwt{font:700 12px var(--sans)}
+   175→.dwx{margin-left:auto;cursor:pointer;font-size:18px;color:var(--tx2)}
+   176→
+   177→/* ── TOAST ── */
+   178→.toast{position:fixed;top:50px;left:50%;transform:translateX(-50%) translateY(-20px);background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;padding:8px 14px;font:600 11px var(--sans);color:var(--tx0);z-index:200;opacity:0;pointer-events:none;transition:all .3s;white-space:nowrap}
+   179→.toast.vis{opacity:1;transform:translateX(-50%) translateY(0)}
+   180→.toast.ok{border-color:var(--grn)}.toast.err{border-color:var(--red)}.toast.warn{border-color:var(--yel)}
+   181→
+   182→/* ── PLAN ACTION BUTTONS ── */
+   183→.pab{display:flex;gap:6px;margin-top:8px}
+   184→.pab button{flex:1;font:600 10px var(--sans);padding:6px;border-radius:4px;border:none;cursor:pointer;transition:opacity .15s}
+   185→.pab .pb-arm{background:var(--cyn);color:#fff}
+   186→.pab .pb-open{background:var(--grn);color:#fff}
+   187→.pab .pb-can{background:var(--bg3);color:var(--tx1);border:1px solid var(--bdr)}
+   188→.pab button:active{opacity:.7}
+   189→
+   190→/* ── CROSSHAIR HUD ── */
+   191→.chh{position:absolute;background:var(--bg1);border:1px solid var(--bdr);border-radius:4px;padding:4px 8px;font:600 9px var(--mono);color:var(--tx0);pointer-events:none;z-index:50;display:none;white-space:nowrap}
+   192→.chh.vis{display:block}
+   193→
+   194→/* ── SCROLLBAR ── */
+   195→::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
+   196→
+   197→/* ── RECONNECT BUTTON ── */
+   198→.recon{font:600 9px var(--sans);padding:3px 8px;border-radius:4px;background:var(--red);color:#fff;border:none;cursor:pointer;margin-left:4px}
+   199→</style>
+   200→</head>
+   201→<body>
+   202→<div class="app">
+   203→<div class="top">
+   204→<input class="sym-in" id="symIn" value="BTCUSDT" spellcheck="false" autocomplete="off">
+   205→<div class="dot off" id="dot"></div>
+   206→<span class="badge" id="vpinB">VPIN --</span>
+   207→<span class="badge" id="latB">--ms</span>
+   208→<span class="regime" id="regB">DEAD</span>
+   209→<span class="px" id="pxD">--</span>
+   210→<span class="chg" id="chgB">--</span>
+   211→<button class="recon" id="reconBtn" style="display:none">RECONNECT</button>
+   212→</div>
+   213→
+   214→<div class="err-ban" id="errBan"><span id="errTx">Hata</span><span class="err-x" id="errX">×</span></div>
+   215→
+   216→<div class="main" id="mainC">
+   217→'''
+   218→
+   219→print(f"PART 1 (HTML+CSS) oluşturuldu: {len(html_part1)} chars")
+   220→# PART 2: HTML Body - Panels
+   221→html_part2 = '''
+   222→<!-- ═══════ PANEL: BOOK ═══════ -->
+   223→<div class="panel act" id="p-book">
+   224→<div class="ab" id="anomB"></div>
+   225→<div class="cc" style="height:270px" id="bookWrap"><canvas id="cvBook"></canvas>
+   226→<div class="stale-ov" id="staleOv"><span class="stale-tx">STALE — resync...</span></div>
+   227→<div class="chh" id="chhBook"></div>
+   228→</div>
+   229→<div class="hl"><span>Low</span><div class="hlg" id="hlGrad"></div><span>High</span></div>
+   230→<div class="cd" style="margin-top:8px"><div class="ct">Layers</div>
+   231→<div class="fb" id="layF">
+   232→<span class="fbt act" data-l="liq">Likidite</span>
+   233→<span class="fbt act" data-l="wall">Wall</span>
+   234→<span class="fbt act" data-l="spoof">Spoof</span>
+   235→<span class="fbt act" data-l="ice">Iceberg</span>
+   236→<span class="fbt" data-l="vpvr">VPVR</span>
+   237→<span class="fbt" data-l="liqpool">LiqPool</span>
+   238→<span class="fbt" data-l="velocity">Velocity</span>
+   239→</div></div>
+   240→<div class="cd"><div class="ct">Book Summary</div>
+   241→<div class="mg c3">
+   242→<div class="mi"><div class="ml">Bid Depth</div><div class="mv g" id="bdD">--</div></div>
+   243→<div class="mi"><div class="ml">Ask Depth</div><div class="mv r" id="adD">--</div></div>
+   244→<div class="mi"><div class="ml">Spread</div><div class="mv y" id="spD">--</div></div>
+   245→<div class="mi"><div class="ml">Microprice</div><div class="mv c" id="mpD">--</div></div>
+   246→<div class="mi"><div class="ml">OBI</div><div class="mv b" id="obiD">--</div></div>
+   247→<div class="mi"><div class="ml">Skew</div><div class="mv" id="skD">--</div></div>
+   248→<div class="mi"><div class="ml">OBI-5</div><div class="mv" id="obi5D">--</div></div>
+   249→<div class="mi"><div class="ml">OBI-20</div><div class="mv" id="obi20D">--</div></div>
+   250→<div class="mi"><div class="ml">Book Vel</div><div class="mv o" id="bvD">--</div></div>
+   251→</div></div>
+   252→</div>
+   253→
+   254→<!-- ═══════ PANEL: FLOW ═══════ -->
+   255→<div class="panel" id="p-flow">
+   256→<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+   257→<span class="pd n" id="fDir">NOTR</span>
+   258→<span style="font:600 11px var(--mono);color:var(--tx1)" id="fStr">--%</span>
+   259→</div>
+   260→<div class="cc" style="height:220px"><canvas id="cvFlow"></canvas></div>
+   261→<div class="cd" style="margin-top:8px"><div class="ct">Flow Metrics</div>
+   262→<div class="mg c3">
+   263→<div class="mi"><div class="ml">Delta</div><div class="mv" id="fDel">--</div></div>
+   264→<div class="mi"><div class="ml">Buy Not.</div><div class="mv g" id="fBuy">--</div></div>
+   265→<div class="mi"><div class="ml">Sell Not.</div><div class="mv r" id="fSel">--</div></div>
+   266→<div class="mi"><div class="ml">Tape Rate</div><div class="mv b" id="fRate">--</div></div>
+   267→<div class="mi"><div class="ml">Whale T1</div><div class="mv y" id="fWh1">0</div></div>
+   268→<div class="mi"><div class="ml">Whale T3</div><div class="mv o" id="fWh3">0</div></div>
+   269→</div></div>
+   270→<div class="cd"><div class="ct">Absorption</div><div class="mi" style="text-align:left;padding:8px"><div class="mv" id="absV" style="font-size:11px">--</div></div></div>
+   271→<div class="cd"><div class="ct">Liquidations (60s)</div>
+   272→<div class="mg"><div class="mi"><div class="ml">Long Liq</div><div class="mv r" id="lqL">0</div></div><div class="mi"><div class="ml">Short Liq</div><div class="mv g" id="lqS">0</div></div></div>
+   273→</div>
+   274→</div>
+   275→
+   276→<!-- ═══════ PANEL: DEPTH ═══════ -->
+   277→<div class="panel" id="p-depth">
+   278→<div class="cd"><div class="ct">CVD</div>
+   279→<div class="cc" style="height:70px"><canvas id="cvCvd"></canvas></div>
+   280→<div class="mg" style="margin-top:6px">
+   281→<div class="mi"><div class="ml">CVD</div><div class="mv" id="cvdV">--</div></div>
+   282→<div class="mi"><div class="ml">Velocity/10s</div><div class="mv" id="cvdVel">--</div></div>
+   283→</div></div>
+   284→<div class="cd"><div class="ct">Ladder</div><div id="ladder"></div></div>
+   285→</div>
+   286→
+   287→<!-- ═══════ PANEL: SIGNALS ═══════ -->
+   288→<div class="panel" id="p-signals">
+   289→<div class="fb" id="sigF">
+   290→<span class="fbt act" data-f="all">All</span>
+   291→<span class="fbt" data-f="bu">Bull</span>
+   292→<span class="fbt" data-f="be">Bear</span>
+   293→<span class="fbt" data-f="wa">Warn</span>
+   294→<span class="fbt" data-f="hi">>=80%</span>
+   295→<span class="fbt" data-f="ver">Verified</span>
+   296→</div>
+   297→<div class="mg c3" style="margin-bottom:8px">
+   298→<div class="mi"><div class="ml">Total</div><div class="mv b" id="sT">0</div></div>
+   299→<div class="mi"><div class="ml">Bull</div><div class="mv g" id="sB">0</div></div>
+   300→<div class="mi"><div class="ml">Bear</div><div class="mv r" id="sR">0</div></div>
+   301→</div>
+   302→<div id="sigList"></div>
+   303→</div>
+   304→
+   305→<!-- ═══════ PANEL: LEVELS ═══════ -->
+   306→<div class="panel" id="p-levels">
+   307→<div class="cd"><div class="ct">Market Regime · <span id="regTxt" style="color:var(--tx2)">DEAD</span></div>
+   308→<div class="nbx" id="narB">Veri bekleniyor...</div>
+   309→<div class="cb" id="confBreak"></div>
+   310→<div class="ch" id="confChips"></div>
+   311→</div>
+   312→
+   313→<div class="cd" style="background:linear-gradient(135deg,var(--bg2),var(--bg3))">
+   314→<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+   315→<div class="pd n" id="plDir">BEKLEMEDE</div>
+   316→<span class="pl-st candidate" id="plSt">CANDIDATE</span>
+   317→</div>
+   318→<div style="font:400 10px var(--sans);color:var(--tx1);margin-bottom:6px" id="plR">--</div>
+   319→<div class="pl" id="plL"></div>
+   320→<div style="margin-top:8px;font:400 10px var(--sans);color:var(--tx2)" id="plRR">RR: -- · Conf: --% · TTL: --s</div>
+   321→<div class="pab" id="plActions" style="display:none">
+   322→<button class="pb-arm" id="pbArm">ARM</button>
+   323→<button class="pb-can" id="pbCan">CANCEL</button>
+   324→</div>
+   325→<div class="pab" id="plActionsOpen" style="display:none">
+   326→<button class="pb-open" id="pbOpen">OPEN PAPER</button>
+   327→<button class="pb-can" id="pbCan2">CANCEL</button>
+   328→</div>
+   329→</div>
+   330→
+   331→<div class="cd"><div class="ct">Micro Optimizer</div>
+   332→<div class="mg c3">
+   333→<div class="mi"><div class="ml">Risk%</div><div class="mv" id="mRk">--</div></div>
+   334→<div class="mi"><div class="ml">Notional</div><div class="mv" id="mNt">--</div></div>
+   335→<div class="mi"><div class="ml">Margin</div><div class="mv" id="mMr">--</div></div>
+   336→<div class="mi"><div class="ml">Lev</div><div class="mv" id="mLv">--</div></div>
+   337→<div class="mi"><div class="ml">Kelly%</div><div class="mv c" id="mKy">--</div></div>
+   338→<div class="mi"><div class="ml">Order</div><div class="mv" id="mOd">--</div></div>
+   339→<div class="mi"><div class="ml">BE Price</div><div class="mv" id="mBE">--</div></div>
+   340→<div class="mi"><div class="ml">Liq Price</div><div class="mv r" id="mLq">--</div></div>
+   341→<div class="mi"><div class="ml">Funding</div><div class="mv y" id="mFund">--</div></div>
+   342→</div></div>
+   343→
+   344→<div class="cd"><div class="ct">Plan History</div>
+   345→<div id="planHist"></div>
+   346→</div>
+   347→</div>
+   348→
+   349→<!-- ═══════ PANEL: MARKETS ═══════ -->
+   350→<div class="panel" id="p-markets">
+   351→<div class="cd"><div class="ct">Multi-Exchange</div>
+   352→<div class="mg"><div class="mi"><div class="ml">Quality</div><div class="mv b" id="qSc">--</div></div><div class="mi"><div class="ml">Live</div><div class="mv g" id="lCt">--</div></div><div class="mi"><div class="ml">Arb Edge</div><div class="mv" id="arbE">--</div></div></div></div>
+   353→<div id="exC"></div>
+   354→</div>
+   355→
+   356→<!-- ═══════ PANEL: PERF ═══════ -->
+   357→<div class="panel" id="p-perf">
+   358→<div class="cd"><div class="ct">Paper Performance</div>
+   359→<div class="mg c3">
+   360→<div class="mi"><div class="ml">Trades</div><div class="mv b" id="pTr">0</div></div>
+   361→<div class="mi"><div class="ml">Win%</div><div class="mv g" id="pWr">--</div></div>
+   362→<div class="mi"><div class="ml">Net R</div><div class="mv" id="pNr">--</div></div>
+   363→</div></div>
+   364→<div class="cd"><div class="ct">Equity</div><div class="cc" style="height:110px"><canvas id="cvEq"></canvas></div></div>
+   365→<div class="cd"><div class="ct">Stats</div>
+   366→<div class="ps"><span class="plb">PF</span><span class="pv" id="pPF">--</span></div>
+   367→<div class="ps"><span class="plb">Sharpe</span><span class="pv" id="pSh">--</span></div>
+   368→<div class="ps"><span class="plb">Max DD</span><span class="pv" id="pDD">--</span></div>
+   369→<div class="ps"><span class="plb">Avg Hold</span><span class="pv" id="pAH">--</span></div>
+   370→<div class="ps"><span class="plb">Avg Slip</span><span class="pv" id="pSl">--</span></div>
+   371→<div class="ps"><span class="plb">Avg MAE</span><span class="pv" id="pMAE">--</span></div>
+   372→<div class="ps"><span class="plb">Avg MFE</span><span class="pv" id="pMFE">--</span></div>
+   373→<div class="ps"><span class="plb">MAE/MFE</span><span class="pv" id="pMM">--</span></div>
+   374→</div>
+   375→<div class="cd"><div class="ct">Confidence Calibration</div>
+   376→<div class="mg c3">
+   377→<div class="mi"><div class="ml">60-70%</div><div class="mv" id="cc60">--</div></div>
+   378→<div class="mi"><div class="ml">70-80%</div><div class="mv" id="cc70">--</div></div>
+   379→<div class="mi"><div class="ml">80-90%</div><div class="mv" id="cc80">--</div></div>
+   380→<div class="mi"><div class="ml">90+%</div><div class="mv" id="cc90">--</div></div>
+   381→<div class="mi"><div class="ml">Verified</div><div class="mv g" id="ccVer">--</div></div>
+   382→<div class="mi"><div class="ml">Missed</div><div class="mv r" id="ccMis">--</div></div>
+   383→</div></div>
+   384→</div>
+   385→
+   386→<!-- ═══════ PANEL: SETTINGS ═══════ -->
+   387→<div class="panel" id="p-settings">
+   388→<div class="sg"><div class="sgt">Data</div>
+   389→<div class="sr"><span class="sl">Depth Levels</span><input class="si" id="sDL" type="number" value="20" min="5" max="50"></div>
+   390→<div class="sr"><span class="sl">Heatmap Win(s)</span><input class="si" id="sHW" type="number" value="30" min="10" max="120"></div>
+   391→</div>
+   392→<div class="sg"><div class="sgt">Flow</div>
+   393→<div class="sr"><span class="sl">Timeframe(ms)</span><input class="si" id="sFT" type="number" value="5000" min="1000" max="60000" step="1000"></div>
+   394→<div class="sr"><span class="sl">Mode</span><select class="si" id="sFM"><option value="time">Time</option><option value="volume">Volume</option></select></div>
+   395→<div class="sr"><span class="sl">Vol Target($)</span><input class="si" id="sFV" type="number" value="1000000" min="100000" step="100000"></div>
+   396→</div>
+   397→<div class="sg"><div class="sgt">Detectors</div>
+   398→<div class="sr"><span class="sl">Wall Mult</span><input class="si" id="sWM" type="number" value="3" min="1.5" max="10" step=".5"></div>
+   399→<div class="sr"><span class="sl">Min Conf</span><input class="si" id="sMC" type="number" value="60" min="30" max="95" step="5"></div>
+   400→<div class="sr"><span class="sl">Spoof Win(s)</span><input class="si" id="sSW" type="number" value="3" min="1" max="10"></div>
+   401→<div class="sr"><span class="sl">Iceberg Min($)</span><input class="si" id="sIB" type="number" value="50000" min="10000" step="10000"></div>
+   402→</div>
+   403→<div class="sg"><div class="sgt">Risk</div>
+   404→<div class="sr"><span class="sl">Balance($)</span><input class="si" id="sBal" type="number" value="1000" min="10"></div>
+   405→<div class="sr"><span class="sl">Risk%</span><input class="si" id="sRk" type="number" value="2" min=".5" max="10" step=".5"></div>
+   406→<div class="sr"><span class="sl">Max Lev</span><input class="si" id="sLv" type="number" value="20" min="1" max="125"></div>
+   407→<div class="sr"><span class="sl">Fee bps</span><input class="si" id="sFee" type="number" value="4" min="0" max="20" step=".5"></div>
+   408→<div class="sr"><span class="sl">Auto Paper</span><div class="tg" id="tAuto"></div></div>
+   409→<div class="sr"><span class="sl">Plan TTL(s)</span><input class="si" id="sTTL" type="number" value="30" min="10" max="120"></div>
+   410→<div class="sr"><span class="sl">Max Hold(s)</span><input class="si" id="sHold" type="number" value="300" min="60" max="600"></div>
+   411→</div>
+   412→<div class="sg"><div class="sgt">Webhook</div>
+   413→<div class="sr"><span class="sl">Endpoint</span><input class="si" id="sWhUrl" type="text" value="" style="width:200px;text-align:left" placeholder="https://..."></div>
+   414→<div class="sr"><span class="sl">Secret</span><input class="si" id="sWhSec" type="password" value="" style="width:150px;text-align:left" placeholder="secret"></div>
+   415→<div class="sr"><span class="sl">Dry Run</span><div class="tg on" id="tDry"></div></div>
+   416→</div>
+   417→<div class="sg"><div class="sgt">UI</div>
+   418→<div class="sr"><span class="sl">Sound</span><div class="tg" id="tSnd"></div></div>
+   419→<div class="sr"><span class="sl">Voice</span><div class="tg" id="tVox"></div></div>
+   420→</div>
+   421→</div>
+   422→</div>
+   423→
+   424→<!-- ═══════ NAV ═══════ -->
+   425→<div class="nav">
+   426→<div class="ni act" data-t="book"><span class="nk">📊</span><span class="nl">BOOK</span></div>
+   427→<div class="ni" data-t="flow"><span class="nk">🌊</span><span class="nl">FLOW</span></div>
+   428→<div class="ni" data-t="depth"><span class="nk">📐</span><span class="nl">DEPTH</span></div>
+   429→<div class="ni" data-t="signals"><span class="nk">⚡</span><span class="nl">SIG</span><span class="nb" id="sigBdg" style="display:none">0</span></div>
+   430→<div class="ni" data-t="levels"><span class="nk">🎯</span><span class="nl">LVL</span></div>
+   431→<div class="ni" data-t="markets"><span class="nk">🌐</span><span class="nl">MKT</span></div>
+   432→<div class="ni" data-t="perf"><span class="nk">📈</span><span class="nl">PERF</span></div>
+   433→<div class="ni" data-t="settings"><span class="nk">⚙️</span><span class="nl">SET</span></div>
+   434→</div>
+   435→
+   436→<!-- ═══════ DRAWER ═══════ -->
+   437→<div class="dw" id="sigDw">
+   438→<div class="dwc">
+   439→<div class="dwh"><span class="dwt" id="dwTitle">Sinyal Detay</span><span class="dwx" id="dwX">×</span></div>
+   440→<div id="dwBody"></div>
+   441→</div>
+   442→</div>
+   443→
+   444→<!-- ═══════ TOAST ═══════ -->
+   445→<div class="toast" id="toast"></div>
+   446→'''
+   447→
+   448→print(f"PART 2 (HTML Body) oluşturuldu: {len(html_part2)} chars")
+   449→
+   450→# PART 3: Inline Web Worker — Tüm P0-P2 geliştirmeleri
+   451→# Bu en kritik kısım. Worker'da typed array'lar, ring buffer'lar, tüm dedektörler.
+   452→
+   453→worker_code = r"""
+   454→'use strict';
+   455→/* ═══════════════════════════════════════════════════════════════
+   456→   BOZOK PRO v4.0 — WORKER (INLINE)
+   457→   P0: Plan State Machine, Risk Gates, Confluence, Trailing Stop
+   458→   P1: Book Velocity, Multi-Depth OBI, Trade Rate, Dynamic Walls
+   459→   P2: VPVR, Iceberg Lifecycle, Compression Breakout, Void Fill
+   460→   ═══════════════════════════════════════════════════════════════ */
+   461→
+   462→/* ── CONSTANTS ─────────────────────────────────────────────── */
+   463→const ML=50, MT=512, MS=128, MC=256, MF=64, MQ=256, MW=32;
+   464→const MD=20; // max depth levels for multi-obi
+   465→
+   466→/* ── BOOK STATE (typed arrays) ─────────────────────────────── */
+   467→const bP=new Float64Array(ML), bQ=new Float64Array(ML);
+   468→const aP=new Float64Array(ML), aQ=new Float64Array(ML);
+   469→let bN=0,aN=0;
+   470→
+   471→/* ── PREVIOUS BOOK (for velocity) ────────────────────────── */
+   472→const pbP=new Float64Array(ML), pbQ=new Float64Array(ML);
+   473→const paP=new Float64Array(ML), paQ=new Float64Array(ML);
+   474→let pbN=0,paN=0,lastBookT=0;
+   475→let bookVelScore=0; // P1-1
+   476→
+   477→/* ── TRADES (ring buffer) ────────────────────────────────── */
+   478→const tP=new Float64Array(MT), tQ=new Float64Array(MT), tS=new Uint8Array(MT);
+   479→const tT=new Float64Array(MT), tN=new Float64Array(MT), tTier=new Uint8Array(MT);
+   480→let tH=0,tC=0;
+   481→
+   482→/* ── TRADE RATE MONITOR (P1-3) ───────────────────────────── */
+   483→let tradeRate1s=0,tradeRate5s=0,tradeRate30s=0;
+   484→let tapeSpike=false;
+   485→let whaleT1=0,whaleT2=0,whaleT3=0;
+   486→
+   487→/* ── CVD (ring buffer) ───────────────────────────────────── */
+   488→const cT=new Float64Array(MC), cV=new Float64Array(MC);
+   489→let cH=0,cC=0,cvd=0;
+   490→
+   491→/* ── FLOW (ring buffer) ──────────────────────────────────── */
+   492→const fPr=new Float64Array(MF), fSt=new Float64Array(MF), fDe=new Float64Array(MF);
+   493→const fBu=new Float64Array(MF), fSe=new Float64Array(MF), fTm=new Float64Array(MF), fLq=new Uint16Array(MF);
+   494→let fH=0,fC=0;
+   495→
+   496→/* ── LIQUIDATIONS (ring buffer) ──────────────────────────── */
+   497→const lT=new Float64Array(MQ), lS=new Uint8Array(MQ), lN=new Float64Array(MQ);
+   498→let lH=0,lC=0;
+   499→
+   500→/* ── CASCADE CHAIN (P1-7) ───────────────────────────────── */
+   501→let cascadeChainLen=0,cascadeChainDir=0,cascadeChainT=0;
+   502→
+   503→/* ── VPIN ──────────────────────────────────────────────────── */
+   504→let vSum=0,vCnt=0,vVal=0,vBB=0,vSB=0,vBN=0;
+   505→let vBucketSz=500000;
+   506→
+   507→/* ── FLOW BUCKET ─────────────────────────────────────────── */
+   508→let fbS=0,fbB=0,fbSe=0,fbA=0,fbL=0,fbPO=0,fbPH=0,fbPL=0;
+   509→
+   510→/* ── MID & STATE ──────────────────────────────────────────── */
+   511→let mid=0,compAct=false,ladC=0;
+   512→
+   513→/* ── WALL TRACKERS ───────────────────────────────────────── */
+   514→const wBP=new Float64Array(MW), wBQ=new Float64Array(MW), wBI=new Float64Array(MW);
+   515→const wBL=new Float64Array(MW), wBX=new Uint8Array(MW), wBE=new Float64Array(MW);
+   516→let wBC=0;
+   517→const wAP=new Float64Array(MW), wAQ=new Float64Array(MW), wAI=new Float64Array(MW);
+   518→const wAL=new Float64Array(MW), wAX=new Uint8Array(MW), wAE=new Float64Array(MW);
+   519→let wAC=0;
+   520→
+   521→/* ── SIGNALS (ring buffer) ───────────────────────────────── */
+   522→const sTy=new Array(MS).fill(''), sBi=new Array(MS).fill(''), sDe=new Float64Array(MS);
+   523→const sPr=new Float64Array(MS), sTm=new Float64Array(MS), sDs=new Array(MS).fill(''), sCf=new Uint8Array(MS);
+   524→const sVer=new Uint8Array(MS), sVerR=new Uint8Array(MS); // P2-6: verification
+   525→let sH=0,sC=0;
+   526→const sLF={};
+   527→
+   528→/* ── ICEBERG LIFECYCLE (P2-2) ────────────────────────────── */
+   529→let iTr=new Float64Array(ML), iDp=new Float64Array(ML), iCt=new Uint16Array(ML);
+   530→let iState=new Uint8Array(ML); // 0=none, 1=forming, 2=confirmed, 3=pulled, 4=consumed
+   531→let iT=new Float64Array(ML);
+   532→let absInfo=null;
+   533→
+   534→/* ── VOID TRACKER (P2-4) ───────────────────────────────── */
+   535→let voidFillState=new Uint8Array(ML); // 0=none, 1=detected, 2=filling, 3=filled
+   536→let voidFillT=new Float64Array(ML);
+   537→
+   538→/* ── LIQ POOL ESTIMATOR (P1-9) ──────────────────────────── */
+   539→let liqPoolLong=[], liqPoolShort=[];
+   540→
+   541→/* ── MARKET REGIME (P1-12) ─────────────────────────────── */
+   542→let regime='DEAD',regimeScore=0;
+   543→let volHist=new Float64Array(60).fill(0),volH=0;
+   544→let dirHist=new Float64Array(60).fill(0),dirH=0;
+   545→
+   546→/* ── CONFIG ──────────────────────────────────────────────── */
+   547→let cWm=3,cMc=60,cFt=5000,cFm='time',cFv=1e6,cBal=1000,cRp=2,cMl=20,cFb=4,cSw=3,cIb=50000;
+   548→let cDL=20,cHW=30,cTTL=30,cHold=300;
+   549→let tickSize=0.01,stepSize=0.001,minQty=0.001,minNotional=5;
+   550→let fundingRate=0;
+   551→
+   552→/* ── PLAN STATE MACHINE (P0-1) ─────────────────────────── */
+   553→let planState='NEUTRAL'; // NEUTRAL, CANDIDATE, ARMED
+   554→let planId='',planDir='',planConf=0,planEntry=0,planSL=0,planTP=0,planRR=0;
+   555→let planTTL=0,planConfluence=0;
+   556→let lastPlanDir='',lastPlanT=0;
+   557→
+   558→/* ── MULTI-DEPTH OBI (P1-2) ──────────────────────────────── */
+   559→let obi5=0,obi10=0,obi20=0;
+   560→let obiDiv=false;
+   561→
+   562→/* ── HELPER FUNCTIONS ────────────────────────────────────── */
+   563→function now(){return Date.now()}
+   564→function cl(v,a,b){return v<a?a:v>b?b:v}
+   565→function med(a,n){if(!n)return 0;const t=[];for(let i=0;i<n;i++)t[i]=a[i];for(let i=1;i<n;i++){const v=t[i];let j=i-1;while(j>=0&&t[j]>v){t[j+1]=t[j];j--}t[j+1]=v}const m=n>>1;return n&1?t[m]:(t[m-1]+t[m])*.5}
+   566→function fA(ts){const d=Date.now()-ts;return d<1e3?d+'ms':d<6e4?(d/1e3|0)+'s':(d/6e4|0)+'m'}
+   567→
+   568→/* ── TICK-NORMALIZED PRICE (P1-B) ──────────────────────── */
+   569→function normPrice(p){return Math.round(p/tickSize)*tickSize}
+   570→function roundQty(q){return Math.round(q/stepSize)*stepSize}
+   571→function roundNotional(n){return Math.max(minNotional, Math.round(n))}
+   572→
+   573→/* ── SIGNAL DECAY BY TYPE (P1-16) ───────────────────────── */
+   574→function decayRate(type){
+   575→  switch(type){
+   576→    case 'WALL':case 'BID_WALL':case 'ASK_WALL':return .0002;
+   577→    case 'SPOOFING':return .002;
+   578→    case 'CASCADE_SQUEEZE':case 'CASCADE_CHAIN':case 'CASCADE_EXHAUSTED':return .003;
+   579→    case 'CVD_BULL_DIV':case 'CVD_BEAR_DIV':return .0005;
+   580→    case 'VOID_ASK':case 'VOID_BID':return .0008;
+   581→    case 'ICEBERG':return .0003;
+   582→    default:return .0005;
+   583→  }
+   584→}
+   585→
+   586→/* ── ADD SIGNAL (with verification queue P2-6) ────────────── */
+   587→function addSig(ty,bi,co,pr,ds,cf){
+   588→  const t=now();if(sLF[ty]&&t-sLF[ty]<8000)return;sLF[ty]=t;
+   589→  co=co<cMc?0:co;
+   590→  if(vVal>.7)co*=0.7;
+   591→  let conf=0;for(let i=0;i<Math.min(sC,30);i++){const x=(sH-1-i+MS*2)%MS;if(t-sTm[x]>30000)break;if(sBi[x]===bi)conf++}
+   592→  if(conf>=2)co=cl(co*1.3,0,98);
+   593→  const x=sH%MS;
+   594→  sTy[x]=ty;sBi[x]=bi;sDe[x]=Math.round(co);sPr[x]=pr;sTm[x]=t;sDs[x]=ds;sCf[x]=cf||0;
+   595→  sVer[x]=0;sVerR[x]=0; // pending verification
+   596→  sH++;if(sC<MS)sC++;
+   597→}
+   598→
+   599→/* ── VERIFY SIGNALS (P2-6) ──────────────────────────────── */
+   600→function verifySignals(){
+   601→  const t=now();
+   602→  for(let i=0;i<Math.min(sC,50);i++){
+   603→    const x=(sH-1-i+MS*2)%MS;
+   604→    if(sVer[x]!==0)continue; // already verified
+   605→    const age=t-sTm[x];
+   606→    if(age<5000)continue; // wait 5s
+   607→    if(age>30000){sVer[x]=2;continue} // expired, mark as miss
+   608→    const dir=sBi[x];
+   609→    const priceMove=mid>0?(mid-sPr[x])/sPr[x]*100:0;
+   610→    if((dir==='bullish'&&priceMove>0.03)||(dir==='bearish'&&priceMove<-0.03)){
+   611→      sVer[x]=1; // verified hit
+   612→    }else if((dir==='bullish'&&priceMove<-0.03)||(dir==='bearish'&&priceMove>0.03)){
+   613→      sVer[x]=2; // verified miss
+   614→    }
+   615→  }
+   616→}
+   617→
+   618→/* ════════════════════════════════════════════════════════════
+   619→   P0: CONFLUENCE ENGINE
+   620→   ════════════════════════════════════════════════════════════ */
+   621→function calcConfluence(dir){
+   622→  const t=now();
+   623→  const types=new Set();
+   624→  for(let i=0;i<Math.min(sC,30);i++){
+   625→    const x=(sH-1-i+MS*2)%MS;
+   626→    if(t-sTm[x]>30000)break;
+   627→    if(sBi[x]===dir)types.add(sTy[x]);
+   628→  }
+   629→  return types.size;
+   630→}
+   631→
+   632→function getConfluenceTypes(dir){
+   633→  const t=now();
+   634→  const types=[];
+   635→  for(let i=0;i<Math.min(sC,30);i++){
+   636→    const x=(sH-1-i+MS*2)%MS;
+   637→    if(t-sTm[x]>30000)break;
+   638→    if(sBi[x]===dir)types.push(sTy[x]);
+   639→  }
+   640→  return types;
+   641→}
+   642→
+   643→/* ════════════════════════════════════════════════════════════
+   644→   P0: RISK GATE (Plan üretim öncesi)
+   645→   ════════════════════════════════════════════════════════════ */
+   646→function riskGate(){
+   647→  const t=now();
+   648→  // Stale data
+   649→  if(t-lastBookT>5000&&lastBookT>0)return{pass:false,reason:'Stale data'};
+   650→  // Spread
+   651→  if(bN>0&&aN>0){
+   652→    const sp=(aP[0]-bP[0])/mid*1e4;
+   653→    if(sp>10)return{pass:false,reason:'Spread > 10bps'};
+   654→  }
+   655→  // VPIN toxic
+   656→  if(vVal>0.8)return{pass:false,reason:'VPIN toxic'};
+   657→  // Compression active
+   658→  if(compAct)return{pass:false,reason:'Compression active'};
+   659→  // Cascade recent
+   660→  if(cascadeChainLen>=1&&t-cascadeChainT<5000)return{pass:false,reason:'Cascade active'};
+   661→  return{pass:true,reason:''};
+   662→}
+   663→
+   664→/* ════════════════════════════════════════════════════════════
+   665→   P0: PLAN STATE MACHINE
+   666→   ════════════════════════════════════════════════════════════ */
+   667→function updatePlanState(){
+   668→  const gate=riskGate();
+   669→  if(!gate.pass){
+   670→    if(planState!=='NEUTRAL'){
+   671→      planState='NEUTRAL';planId='';planDir='';planConf=0;
+   672→    }
+   673→    return;
+   674→  }
+   675→  const pl=genPlan();
+   676→  if(!pl||pl.dir==='NEUTRAL'){
+   677→    if(planState!=='NEUTRAL'){planState='NEUTRAL';planId='';planDir='';planConf=0;}
+   678→    return;
+   679→  }
+   680→  // Duplicate prevention
+   681→  const t=now();
+   682→  if(pl.dir===lastPlanDir&&t-lastPlanT<30000)return;
+   683→  
+   684→  // Confluence check
+   685→  const cf=calcConfluence(pl.dir);
+   686→  if(cf<3){
+   687→    if(planState!=='NEUTRAL'){planState='NEUTRAL';planId='';planDir='';planConf=0;}
+   688→    return;
+   689→  }
+   690→  
+   691→  // net_RR check
+   692→  const netRR=calcNetRR(pl);
+   693→  if(netRR<2.0){
+   694→    if(planState!=='NEUTRAL'){planState='NEUTRAL';planId='';planDir='';planConf=0;}
+   695→    return;
+   696→  }
+   697→  
+   698→  planState='CANDIDATE';
+   699→  planDir=pl.dir;planConf=pl.conf;planEntry=pl.entry;planSL=pl.sl;planTP=pl.tp;planRR=netRR;
+   700→  planConfluence=cf;planTTL=cTTL*1000;
+   701→  planId='plan_'+t;
+   702→  lastPlanDir=pl.dir;lastPlanT=t;
+   703→}
+   704→
+   705→function calcNetRR(pl){
+   706→  if(!pl||pl.dir==='NEUTRAL')return 0;
+   707→  const grossRR=pl.rr;
+   708→  const feeCost=(cFb*2)/10000;
+   709→  const slipCost=0.0005; // avg 5bps slippage
+   710→  const totalCost=feeCost+slipCost;
+   711→  const riskDist=Math.abs(pl.entry-pl.sl)/pl.entry;
+   712→  const costRR=totalCost/riskDist;
+   713→  let net=grossRR-costRR;
+   714→  // Funding adjustment
+   715→  if(fundingRate!==0){
+   716→    const holdHrs=Math.min(cHold/3600,8);
+   717→    net-=Math.abs(fundingRate)*holdHrs;
+   718→  }
+   719→  return net;
+   720→}
+   721→
+   722→/* ── PROC BOOK (P1-1: Velocity) ─────────────────────────── */
+   723→function procBook(bids,asks){
+   724→  const t=now();
+   725→  // Save previous for velocity
+   726→  pbN=bN;paN=aN;
+   727→  for(let i=0;i<bN;i++){pbP[i]=bP[i];pbQ[i]=bQ[i]}
+   728→  for(let i=0;i<aN;i++){paP[i]=aP[i];paQ[i]=aQ[i]}
+   729→  
+   730→  bN=Math.min(bids.length,ML);aN=Math.min(asks.length,ML);
+   731→  for(let i=0;i<bN;i++){bP[i]=bids[i][0];bQ[i]=bids[i][1]}
+   732→  for(let i=0;i<aN;i++){aP[i]=asks[i][0];aQ[i]=asks[i][1]}
+   733→  mid=bN>0&&aN>0?(bP[0]+aP[0])*.5:0;
+   734→  
+   735→  // Book velocity (P1-1)
+   736→  if(lastBookT>0){
+   737→    const dt=t-lastBookT;
+   738→    if(dt>0){
+   739→      let vel=0;
+   740→      for(let i=0;i<Math.min(bN,pbN);i++){
+   741→        if(Math.abs(bP[i]-pbP[i])<0.001)vel+=Math.abs(bQ[i]-pbQ[i])*bP[i];
+   742→      }
+   743→      for(let i=0;i<Math.min(aN,paN);i++){
+   744→        if(Math.abs(aP[i]-paP[i])<0.001)vel+=Math.abs(aQ[i]-paQ[i])*aP[i];
+   745→      }
+   746→      bookVelScore=vel/dt*1000;
+   747→    }
+   748→  }
+   749→  lastBookT=t;
+   750→  
+   751→  // Multi-depth OBI (P1-2)
+   752→  calcMultiOBI();
+   753→  
+   754→  // Liq pool estimator (P1-9)
+   755→  updateLiqPools();
+   756→  
+   757→  // Market regime (P1-12)
+   758→  updateRegime();
+   759→  
+   760→  runDet();updFlow();verifySignals();updatePlanState();postSt();
+   761→}
+   762→
+   763→/* ── MULTI-DEPTH OBI (P1-2) ──────────────────────────────── */
+   764→function calcMultiOBI(){
+   765→  const n5=Math.min(5,bN,aN),n10=Math.min(10,bN,aN),n20=Math.min(20,bN,aN);
+   766→  let bd5=0,ad5=0,bd10=0,ad10=0,bd20=0,ad20=0;
+   767→  for(let i=0;i<n5;i++){bd5+=bP[i]*bQ[i];ad5+=aP[i]*aQ[i]}
+   768→  for(let i=0;i<n10;i++){bd10+=bP[i]*bQ[i];ad10+=aP[i]*aQ[i]}
+   769→  for(let i=0;i<n20;i++){bd20+=bP[i]*bQ[i];ad20+=aP[i]*aQ[i]}
+   770→  const tot5=bd5+ad5,tot10=bd10+ad10,tot20=bd20+ad20;
+   771→  obi5=tot5>0?(bd5-ad5)/tot5:0;
+   772→  obi10=tot10>0?(bd10-ad10)/tot10:0;
+   773→  obi20=tot20>0?(bd20-ad20)/tot20:0;
+   774→  obiDiv=Math.abs(obi5-obi20)>0.3;
+   775→}
+   776→
+   777→/* ── LIQ POOL ESTIMATOR (P1-9) ───────────────────────────── */
+   778→function updateLiqPools(){
+   779→  if(!mid)return;
+   780→  // Simple estimation based on CVD direction
+   781→  const vwap=calcVWAP();
+   782→  if(!vwap)return;
+   783→  liqPoolLong=[];liqPoolShort=[];
+   784→  const tiers=[10,20,50,100];
+   785→  for(const lev of tiers){
+   786→    const dist=vwap*(1/lev);
+   787→    liqPoolLong.push(vwap+dist);
+   788→    liqPoolShort.push(vwap-dist);
+   789→  }
+   790→}
+   791→
+   792→function calcVWAP(){
+   793→  if(tC<10)return mid;
+   794→  let sumPV=0,sumV=0;
+   795→  const n=Math.min(tC,100);
+   796→  for(let i=0;i<n;i++){
+   797→    const x=(tH-1-i+MT*2)%MT;
+   798→    sumPV+=tP[x]*tQ[x];sumV+=tQ[x];
+   799→  }
+   800→  return sumV>0?sumPV/sumV:mid;
+   801→}
+   802→
+   803→/* ── MARKET REGIME (P1-12) ───────────────────────────────── */
+   804→function updateRegime(){
+   805→  const t=now();
+   806→  // Volatility proxy: spread * trade rate
+   807→  const sp=mid>0&&bN>0&&aN>0?(aP[0]-bP[0])/mid*1e4:0;
+   808→  const volProxy=sp*Math.max(tradeRate1s,1);
+   809→  volHist[volH%60]=volProxy;volH++;
+   810→  // Direction proxy: |CVD change|
+   811→  let dirProxy=0;
+   812→  if(cC>=10){
+   813→    const cn=cV[(cH-1+MC)%MC],ct=cV[(cH-10+MC)%MC];
+   814→    dirProxy=Math.abs(cn-ct);
+   815→  }
+   816→  dirHist[dirH%60]=dirProxy;dirH++;
+   817→  
+   818→  const avgVol=avg(volHist,Math.min(60,volH));
+   819→  const avgDir=avg(dirHist,Math.min(60,dirH));
+   820→  
+   821→  if(cascadeChainLen>=2){regime='CHAOS';regimeScore=90}
+   822→  else if(compAct&&avgVol<2){regime='COILING';regimeScore=70}
+   823→  else if(avgVol>5&&avgDir>100000){regime='TRENDING';regimeScore=80}
+   824→  else if(avgVol>5&&avgDir<50000){regime='CHOPPY';regimeScore=60}
+   825→  else{regime='DEAD';regimeScore=30}
+   826→}
+   827→
+   828→function avg(arr,n){let s=0;for(let i=0;i<n;i++)s+=arr[i];return n>0?s/n:0}
+   829→
+   830→/* ── PROC TRADE (P1-3: Trade Rate, P1-4: Whale) ───────────── */
+   831→function procTrade(p,q,s,t){
+   832→  const x=tH%MT;tP[x]=p;tQ[x]=q;tS[x]=s;tT[x]=t;tN[x]=p*q;
+   833→  // Tier classification (P1-4)
+   834→  const not=p*q;
+   835→  let tier=0;
+   836→  if(not>1e6){tier=3;whaleT3++}
+   837→  else if(not>2e5){tier=2;whaleT2++}
+   838→  else if(not>5e4){tier=1;whaleT1++}
+   839→  tTier[x]=tier;
+   840→  tH++;if(tC<MT)tC++;
+   841→  
+   842→  // Trade rate (P1-3)
+   843→  updateTradeRates(t,not);
+   844→  
+   845→  // CVD
+   846→  const d=s===0?not:-not;cvd+=d;
+   847→  const ci=cH%MC;cT[ci]=t;cV[ci]=cvd;cH++;if(cC<MC)cC++;
+   848→  
+   849→  // VPIN
+   850→  if(s===0)vBB+=not;else vSB+=not;vBN+=not;
+   851→  if(vBN>=vBucketSz){
+   852→    const tot=vBB+vSB;if(tot>0){vSum+=Math.abs(vBB-vSB)/tot;vCnt++;if(vCnt>50)vCnt=50;vVal=vSum/vCnt}
+   853→    vBB=0;vSB=0;vBN=0
+   854→  }
+   855→  
+   856→  // Flow bucket
+   857→  if(s===0)fbB+=not;else fbSe+=not;fbA+=not;
+   858→  if(fbPH<p)fbPH=p;if(fbPL>p||fbPL===0)fbPL=p;
+   859→  
+   860→  chkIceberg(p,not,s);
+   861→}
+   862→
+   863→function updateTradeRates(t,not){
+   864→  const nowT=now();
+   865→  let c1=0,n1=0,c5=0,n5=0,c30=0,n30=0;
+   866→  for(let i=0;i<tC;i++){
+   867→    const x=(tH-1-i+MT*2)%MT;
+   868→    const age=nowT-tT[x];
+   869→    if(age>30000)break;
+   870→    if(age<1000){c1++;n1+=tN[x]}
+   871→    if(age<5000){c5++;n5+=tN[x]}
+   872→    if(age<30000){c30++;n30+=tN[x]}
+   873→  }
+   874→  tradeRate1s=c1;tradeRate5s=c5;tradeRate30s=c30;
+   875→  const avg5s=c5>0?n5/5:0;
+   876→  tapeSpike=c1>avg5s*3&&c1>=5;
+   877→  if(tapeSpike)addSig('TAPE_SPIKE',c1>n1?'bullish':'bearish',65,mid,'Tape speed spike: '+c1+' trades/s',0);
+   878→}
+   879→
+   880→/* ── PROC LIQ (P1-7: Cascade Chain) ──────────────────────── */
+   881→function procLiq(s,p,q,t){
+   882→  const x=lH%MQ;lT[x]=t;lS[x]=s;lN[x]=p*q;lH++;if(lC<MQ)lC++;fbL++;
+   883→  
+   884→  // Cascade chain detection
+   885→  const nowT=now();
+   886→  if(cascadeChainLen===0){cascadeChainLen=1;cascadeChainDir=s;cascadeChainT=nowT}
+   887→  else if(s===cascadeChainDir&&nowT-cascadeChainT<2000){
+   888→    cascadeChainLen++;
+   889→    if(cascadeChainLen>=3){
+   890→      addSig('CASCADE_CHAIN',s===1?'bearish':'bullish',cl(60+cascadeChainLen*8,60,92),mid,'Cascade chain x'+cascadeChainLen,0);
+   891→    }
+   892→  }else{cascadeChainLen=1;cascadeChainDir=s;cascadeChainT=nowT}
+   893→  
+   894→  chkCascade(s,p,p*q);chkLiqCluster();chkCascadeExhaustion();
+   895→}
+   896→
+   897→/* ── CASCADE EXHAUSTION (P1-8) ───────────────────────────── */
+   898→function chkCascadeExhaustion(){
+   899→  if(cascadeChainLen<3)return;
+   900→  // Check if next cascade would fail (depth > notional)
+   901→  const dir=cascadeChainDir;
+   902→  const arr=dir===1?bP:aP;const qty=dir===1?bQ:aQ;const cnt=dir===1?bN:aN;
+   903→  if(cnt<3)return;
+   904→  const thr=dir===1?mid*.999:mid*1.001;
+   905→  let near=0;
+   906→  for(let i=0;i<cnt;i++){if((dir===1&&arr[i]>=thr)||(dir===0&&arr[i]<=thr))near+=arr[i]*qty[i]}
+   907→  // If depth is now sufficient, cascade exhausted
+   908→  const lastLiq=lN[(lH-1+MQ)%MQ];
+   909→  if(near>lastLiq*1.2){
+   910→    addSig('CASCADE_EXHAUSTED',dir===1?'bullish':'bearish',85,mid,'Cascade exhausted → reversal',0);
+   911→    cascadeChainLen=0;
+   912→  }
+   913→}
+   914→
+   915→/* ── ICEBERG (P2-2: Lifecycle) ───────────────────────────── */
+   916→function chkIceberg(price,notional,side){
+   917→  if(notional<cIb)return;
+   918→  const arr=side===0?aP:bP;const qty=side===0?aQ:bQ;const cnt=side===0?aN:bN;
+   919→  for(let i=0;i<Math.min(cnt,20);i++){
+   920→    if(Math.abs(arr[i]-price)/price<.0002){
+   921→      iTr[i]+=notional;iDp[i]=qty[i];iCt[i]++;
+   922→      if(iState[i]===0){iState[i]=1;iT[i]=now()} // FORMING
+   923→      else if(iState[i]===1&&iCt[i]>=3){iState[i]=2} // CONFIRMED
+   924→      
+   925→      if(iCt[i]>=3){
+   926→        const avgT=iTr[i]/iCt[i];const avgP=mid||1;const tQty=avgT/avgP;
+   927→        const sc=tQty/Math.max(iDp[i],.001);
+   928→        if(sc>2.5){
+   929→          const st=iState[i]===2?'CONFIRMED':'FORMING';
+   930→          addSig('ICEBERG_'+st,side===0?'bullish':'bearish',cl(60+sc*5,60,88),price,
+   931→            'Iceberg '+st+' @ '+price.toFixed(2)+' ratio:'+sc.toFixed(1)+'x',0);
+   932→          if(iState[i]===2){iState[i]=4;iCt[i]=0} // CONSUMED
+   933→        }
+   934→      }
+   935→      break;
+   936→    }
+   937→  }
+   938→}
+   939→
+   940→/* ── CASCADE (P1-7) ──────────────────────────────────────── */
+   941→function chkCascade(side,price,notional){
+   942→  if(notional<100000)return;
+   943→  const arr=side===1?bP:aP;const qty=side===1?bQ:aQ;const cnt=side===1?bN:aN;
+   944→  const thr=side===1?price*.999:price*1.001;
+   945→  let near=0;for(let i=0;i<cnt;i++){if((side===1&&arr[i]>=thr)||(side===0&&arr[i]<=thr))near+=arr[i]*qty[i]}
+   946→  if(notional>near*1.5){
+   947→    addSig('CASCADE_SQUEEZE',side===1?'bearish':'bullish',88,price,
+   948→      'Cascade: $'+(notional/1e6).toFixed(2)+'M vs depth $'+(near/1e6).toFixed(2)+'M',0);
+   949→  }
+   950→}
+   951→
+   952→/* ── LIQ CLUSTER ───────────────────────────────────────────── */
+   953→function chkLiqCluster(){
+   954→  const t=now();let cnt=0,tot=0,lo=0,sh=0;
+   955→  for(let i=0;i<lC;i++){const x=(lH-1-i+MQ*2)%MQ;if(t-lT[x]>10000)break;cnt++;tot+=lN[x];if(lS[x]===1)lo++;else sh++}
+   956→  if(cnt>=5&&tot>500000)addSig('LIQ_CLUSTER',lo>sh?'bearish':'bullish',cl(50+cnt*5,50,95),mid,cnt+' liq $'+(tot/1e6).toFixed(2)+'M',0);
+   957→}
+   958→
+   959→/* ── FLOW (P1-M: Trend, P1-N: Exhaustion) ─────────────────── */
+   960→function updFlow(){
+   961→  const t=now();
+   962→  if(fbS===0){fbS=t;fbPO=mid;fbPH=mid;fbPL=mid;return}
+   963→  const el=t-fbS;const close=cFm==='time'?el>=cFt:fbA>=cFv;
+   964→  if(close&&fbA>0){
+   965→    const d=fbB-fbSe;const pr=cl(d/fbA*100,-100,100);const st=cl(Math.abs(d)/fbA*100,0,100);
+   966→    const fi=fH%MF;fPr[fi]=pr;fSt[fi]=st;fDe[fi]=d;fBu[fi]=fbB;fSe[fi]=fbSe;fTm[fi]=fbS;fLq[fi]=fbL;fH++;if(fC<MF)fC++;
+   967→    
+   968→    // Absorption
+   969→    if(Math.abs(d)>100000&&fbPH>0&&fbPL>0&&Math.abs(fbPH-fbPL)/mid<.0005){
+   970→      absInfo={ts:t,side:d>0?'bid':'ask',delta:d,price:mid};
+   971→      addSig('ABSORPTION',d>0?'bullish':'bearish',75,mid,'Absorption: delta $'+(d/1e3).toFixed(0)+'K zero move',0);
+   972→    }
+   973→    
+   974→    // Flow trend & exhaustion (P1-M, P1-N)
+   975→    detFlowTrend();
+   976→    
+   977→    fbS=t;fbB=0;fbSe=0;fbA=0;fbL=0;fbPO=mid;fbPH=mid;fbPL=mid;
+   978→    detFlow();
+   979→  }
+   980→}
+   981→
+   982→function detFlowTrend(){
+   983→  if(fC<5)return;
+   984→  let pos=0,neg=0;
+   985→  for(let i=0;i<Math.min(fC,5);i++){
+   986→    const x=(fH-1-i+MF*2)%MF;
+   987→    if(fDe[x]>0)pos++;else if(fDe[x]<0)neg++;
+   988→  }
+   989→  if(pos===5)addSig('FLOW_SUSTAINED','bullish',60,mid,'Sustained buying pressure',0);
+   990→  else if(neg===5)addSig('FLOW_SUSTAINED','bearish',60,mid,'Sustained selling pressure',0);
+   991→  
+   992→  // Exhaustion
+   993→  const la=(fH-1+MF)%MF;
+   994→  if(Math.abs(fPr[la])>80&&fC>=3){
+   995→    const prev=fPr[(fH-2+MF)%MF];
+   996→    if(Math.abs(fPr[la])>Math.abs(prev)*0.8){
+   997→      addSig('FLOW_EXHAUSTION',fDe[la]>0?'bearish':'bullish',70,mid,'Flow exhaustion detected',0);
+   998→    }
+   999→  }
+  1000→}
+  1001→
+  1002→function detFlow(){
+  1003→  if(fC<2)return;
+  1004→  const la=(fH-1+MF)%MF,pr=(fH-2+MF)%MF;
+  1005→  if(Math.abs(fDe[la])>Math.abs(fDe[pr])*2&&fbA>100000)
+  1006→    addSig('DELTA_EXPANSION',fDe[la]>0?'bullish':'bearish',cl(60+Math.abs(fPr[la])*.3,60,90),mid,'Delta exp $'+(Math.abs(fDe[la])/1e3).toFixed(0)+'K',0);
+  1007→  if(cC>=10&&fC>=5){
+  1008→    const cn=cV[(cH-1+MC)%MC],ct=cV[(cH-10+MC)%MC];
+  1009→    const pn=fPr[la],pt=fPr[(fH-5+MF)%MF];
+  1010→    if(pn>5&&cn<ct)addSig('CVD_BEAR_DIV','bearish',70,mid,'CVD bearish divergence',0);
+  1011→    else if(pn<-5&&cn>ct)addSig('CVD_BULL_DIV','bullish',70,mid,'CVD bullish divergence',0);
+  1012→  }
+  1013→}
+  1014→
+  1015→/* ── DETECTORS ────────────────────────────────────────────── */
+  1016→function runDet(){
+  1017→  if(bN<5||aN<5)return;
+  1018→  detWalls();detComp();detLad();detSkew();detVoid();detSpoof();
+  1019→}
+  1020→
+  1021→/* ── WALLS (P1-5: Dynamic Threshold, P1-6: Execution Ratio) ── */
+  1022→function detWalls(){
+  1023→  const t=now();const n10=Math.min(10,bN,aN);
+  1024→  const bq=[],aq=[];for(let i=0;i<n10;i++){bq[i]=bQ[i];aq[i]=aQ[i]}
+  1025→  const mB=med(bq,n10),mA=med(aq,n10);
+  1026→  
+  1027→  // Dynamic threshold (P1-5)
+  1028→  const sp=mid>0?(aP[0]-bP[0])/mid*1e4:0;
+  1029→  const volFactor=cl(sp/5,0.5,3.0);
+  1030→  const thrB=mB*cWm*volFactor,thrA=mA*cWm*volFactor;
+  1031→  
+  1032→  const nBP=[],nBQ=[],nBI=[],nBL=[],nBX=[],nBE=[];
+  1033→  const nAP=[],nAQ=[],nAI=[],nAL=[],nAX=[],nAE=[];
+  1034→  
+  1035→  const lim=Math.min(bN,15);
+  1036→  for(let i=0;i<lim;i++){
+  1037→    if(bQ[i]>thrB){
+  1038→      let ex=-1;for(let j=0;j<wBC;j++)if(Math.abs(wBP[j]-bP[i])/bP[i]<.0001){ex=j;break}
+  1039→      if(ex>=0){
+  1040→        const qd=wBQ[ex]-bQ[i];const age=t-wBL[ex];
+  1041→        nBP.push(bP[i]);nBQ.push(bQ[i]);nBI.push(wBI[ex]);nBL.push(t);nBX.push(qd>wBI[ex]*.5?1:0);
+  1042→        nBE.push(wBE[ex]+(age>0?0:0)); // execution tracking
+  1043→      }else{
+  1044→        nBP.push(bP[i]);nBQ.push(bQ[i]);nBI.push(bQ[i]);nBL.push(t);nBX.push(0);nBE.push(0);
+  1045→        if(bQ[i]*bP[i]>100000)addSig('BID_WALL','bullish',cl(55+(bQ[i]/mB)*4,55,92),bP[i],'Bid wall '+bP[i].toFixed(2)+' '+bQ[i].toFixed(3),0);
+  1046→      }
+  1047→    }
+  1048→  }
+  1049→  wBC=nBP.length;for(let i=0;i<wBC;i++){wBP[i]=nBP[i];wBQ[i]=nBQ[i];wBI[i]=nBI[i];wBL[i]=nBL[i];wBX[i]=nBX[i];wBE[i]=nBE[i]}
+  1050→  
+  1051→  const limA=Math.min(aN,15);
+  1052→  for(let i=0;i<limA;i++){
+  1053→    if(aQ[i]>thrA){
+  1054→      let ex=-1;for(let j=0;j<wAC;j++)if(Math.abs(wAP[j]-aP[i])/aP[i]<.0001){ex=j;break}
+  1055→      if(ex>=0){
+  1056→        const qd=wAQ[ex]-aQ[i];
+  1057→        nAP.push(aP[i]);nAQ.push(aQ[i]);nAI.push(wAI[ex]);nAL.push(t);nAX.push(qd>wAI[ex]*.5?1:0);nAE.push(wAE[ex]);
+  1058→      }else{
+  1059→        nAP.push(aP[i]);nAQ.push(aQ[i]);nAI.push(aQ[i]);nAL.push(t);nAX.push(0);nAE.push(0);
+  1060→        if(aQ[i]*aP[i]>100000)addSig('ASK_WALL','bearish',cl(55+(aQ[i]/mA)*4,55,92),aP[i],'Ask wall '+aP[i].toFixed(2)+' '+aQ[i].toFixed(3),0);
+  1061→      }
+  1062→    }
+  1063→  }
+  1064→  wAC=nAP.length;for(let i=0;i<wAC;i++){wAP[i]=nAP[i];wAQ[i]=nAQ[i];wAI[i]=nAI[i];wAL[i]=nAL[i];wAX[i]=nAX[i];wAE[i]=nAE[i]}
+  1065→  
+  1066→  // Wall execution ratio (P1-6)
+  1067→  for(let i=0;i<wBC;i++){
+  1068→    if(wBE[i]/wBQ[i]>0.7)addSig('WALL_CONSUMED','bullish',75,wBP[i],'Bid wall consumed @ '+wBP[i].toFixed(2),0);
+  1069→  }
+  1070→  for(let i=0;i<wAC;i++){
+  1071→    if(wAE[i]/wAQ[i]>0.7)addSig('WALL_CONSUMED','bearish',75,wAP[i],'Ask wall consumed @ '+wAP[i].toFixed(2),0);
+  1072→  }
+  1073→}
+  1074→
+  1075→/* ── SPOOF (P2-I: Confirmation) ─────────────────────────── */
+  1076→function detSpoof(){
+  1077→  const t=now();
+  1078→  for(let i=0;i<wBC;i++){
+  1079→    if(wBX[i]&&t-wBL[i]<cSw*1000){
+  1080→      const dist=Math.abs(wBP[i]-mid)/mid;
+  1081→      if(dist<.001){
+  1082→        // Check execution (P2-I)
+  1083→        if(wBE[i]<wBQ[i]*0.1){
+  1084→          addSig('SPOOFING','bearish',85,mid,'Spoof confirmed: bid wall @ '+wBP[i].toFixed(2)+' cancelled near price',0);
+  1085→        }
+  1086→        wBX[i]=0;
+  1087→      }
+  1088→    }
+  1089→  }
+  1090→  for(let i=0;i<wAC;i++){
+  1091→    if(wAX[i]&&t-wAL[i]<cSw*1000){
+  1092→      const dist=Math.abs(wAP[i]-mid)/mid;
+  1093→      if(dist<.001){
+  1094→        if(wAE[i]<wAQ[i]*0.1){
+  1095→          addSig('SPOOFING','bullish',85,mid,'Spoof confirmed: ask wall @ '+wAP[i].toFixed(2)+' cancelled near price',0);
+  1096→        }
+  1097→        wAX[i]=0;
+  1098→      }
+  1099→    }
+  1100→  }
+  1101→}
+  1102→
+  1103→/* ── COMPRESSION (P2-M: Breakout Predictor) ──────────────── */
+  1104→function detComp(){
+  1105→  if(bN<3||aN<3||!mid)return;
+  1106→  const sp=aP[0]-bP[0],spP=sp/mid*100;
+  1107→  let hbw=false,haw=false;
+  1108→  for(let i=0;i<wBC;i++)if((mid-wBP[i])/mid<.01){hbw=true;break}
+  1109→  for(let i=0;i<wAC;i++)if((wAP[i]-mid)/mid<.01){haw=true;break}
+  1110→  if(hbw&&haw&&spP<.05&&!compAct){
+  1111→    compAct=true;
+  1112→    // Breakout prediction hints (P2-M)
+  1113→    let hint='';
+  1114→    if(cvd>0)hint+='CVD↑ ';
+  1115→    if(fC>0&&fPr[(fH-1+MF)%MF]>10)hint+='Flow↑ ';
+  1116→    if(tapeSpike)hint+='Tape↑ ';
+  1117→    addSig('COMPRESSION','warning',74,mid,'Compression spread:'+spP.toFixed(4)+'%'+hint,0);
+  1118→  }else if(!hbw||!haw)compAct=false;
+  1119→}
+  1120→
+  1121→/* ── LADDER ──────────────────────────────────────────────── */
+  1122→function detLad(){
+  1123→  if(wBC<3)return;
+  1124→  const s=[...Array(wBC)].map((_,i)=>wBP[i]).sort((a,b)=>b-a);
+  1125→  let c=0;for(let i=0;i<s.length-2;i++){const g1=s[i]-s[i+1],g2=s[i+1]-s[i+2];if(g1>0&&g2>0&&Math.abs(g1-g2)/g1<.3)c++}
+  1126→  if(c>=1&&ladC<c){ladC=c;addSig('LADDER','bullish',cl(60+c*8,60,88),s[0],'Ladder '+(c+2)+' bid walls',0)}
+  1127→}
+  1128→
+  1129→/* ── SKEW (P2-R: Velocity, P2-S: Multi-depth divergence) ───── */
+  1130→function detSkew(){
+  1131→  if(bN<10||aN<10)return;
+  1132→  let bn=0,an=0;for(let i=0;i<10;i++){bn+=bP[i]*bQ[i];an+=aP[i]*aQ[i]}
+  1133→  const tot=bn+an;if(!tot)return;const sk=(bn-an)/tot;
+  1134→  if(Math.abs(sk)>.4)addSig('BOOK_SKEW',sk>0?'bullish':'bearish',cl(50+Math.abs(sk)*50,50,85),mid,'Skew '+(sk>0?'bid':'ask')+' '+(Math.abs(sk)*100).toFixed(1)+'%',0);
+  1135→  
+  1136→  // Multi-depth skew divergence (P2-S)
+  1137→  if(Math.abs(obi5-obi20)>.3){
+  1138→    addSig('SKEW_DIVERGENCE',obi5>obi20?'bullish':'bearish',70,mid,'Surface vs deep skew divergence',0);
+  1139→  }
+  1140→}
+  1141→
+  1142→/* ── VOID (P2-T: Depth Score, P2-U: Fill Tracker) ────────── */
+  1143→function detVoid(){
+  1144→  if(aN<10||bN<10)return;
+  1145→  for(let i=1;i<10;i++){
+  1146→    const g=aP[i]-aP[i-1],ag=(aP[9]-aP[0])/9;
+  1147→    if(ag>0&&g>ag*3){
+  1148→      const depth=Math.min(3,Math.floor(g/ag));
+  1149→      addSig('VOID_ASK','bullish',cl(60+depth*8,60,85),aP[i],'Ask void @ '+aP[i].toFixed(2)+' depth:'+depth,0);
+  1150→      voidFillState[i]=1;voidFillT[i]=now();
+  1151→      break;
+  1152→    }
+  1153→  }
+  1154→  for(let i=1;i<10;i++){
+  1155→    const g=bP[i-1]-bP[i],ag=(bP[0]-bP[9])/9;
+  1156→    if(ag>0&&g>ag*3){
+  1157→      const depth=Math.min(3,Math.floor(g/ag));
+  1158→      addSig('VOID_BID','bearish',cl(60+depth*8,60,85),bP[i],'Bid void @ '+bP[i].toFixed(2)+' depth:'+depth,0);
+  1159→      voidFillState[i]=1;voidFillT[i]=now();
+  1160→      break;
+  1161→    }
+  1162→  }
+  1163→  // Void fill tracking (P2-U)
+  1164→  trackVoidFill();
+  1165→}
+  1166→
+  1167→function trackVoidFill(){
+  1168→  for(let i=0;i<10;i++){
+  1169→    if(voidFillState[i]===1){
+  1170→      const age=now()-voidFillT[i];
+  1171→      if(age>5000)voidFillState[i]=0; // expired
+  1172→    }
+  1173→  }
+  1174→}
+  1175→
+  1176→/* ════════════════════════════════════════════════════════════
+  1177→   P0: GEN PLAN (Confluence + Risk Gates + net_RR)
+  1178→   ════════════════════════════════════════════════════════════ */
+  1179→function genPlan(){
+  1180→  const t=now();let bs=0,be=0;
+  1181→  for(let i=0;i<Math.min(sC,30);i++){const x=(sH-1-i+MS*2)%MS;if(t-sTm[x]>30000)break;if(sBi[x]==='bullish')bs+=sDe[x];else if(sBi[x]==='bearish')be+=sDe[x]}
+  1182→  if(!mid)return{dir:'NEUTRAL',conf:0};
+  1183→  let dir='NEUTRAL',conf=0;
+  1184→  if(bs>be+50){dir='LONG';conf=cl(50+(bs-be)/5,50,95)}
+  1185→  else if(be>bs+50){dir='SHORT';conf=cl(50+(be-bs)/5,50,95)}
+  1186→  if(dir==='NEUTRAL')return{dir:'NEUTRAL',conf:0};
+  1187→  
+  1188→  // Confluence boost
+  1189→  const cf=calcConfluence(dir);
+  1190→  if(cf>=4)conf=cl(conf+15,0,98);
+  1191→  if(cf>=5)conf=cl(conf+25,0,98);
+  1192→  
+  1193→  let sl,tp;
+  1194→  if(dir==='LONG'){
+  1195→    let wallSl=null;for(let i=0;i<wAC;i++){wallSl=wAP[i];break}
+  1196→    sl=wallSl?wallSl*.999:mid-(aP[0]-bP[0])*7.5;
+  1197→    let voidTp=null;for(let i=0;i<Math.min(sC,15);i++){const x=(sH-1-i+MS*2)%MS;if(t-sTm[x]>30000)break;if(sTy[x]==='VOID_ASK'){voidTp=sPr[x];break}}
+  1198→    const risk=Math.abs(mid-sl);tp=voidTp&&Math.abs(voidTp-mid)/risk>=2.5?voidTp:mid+risk*2.5;
+  1199→  }else{
+  1200→    let wallSl=null;for(let i=0;i<wBC;i++){wallSl=wBP[i];break}
+  1201→    sl=wallSl?wallSl*1.001:mid+(aP[0]-bP[0])*7.5;
+  1202→    let voidTp=null;for(let i=0;i<Math.min(sC,15);i++){const x=(sH-1-i+MS*2)%MS;if(t-sTm[x]>30000)break;if(sTy[x]==='VOID_BID'){voidTp=sPr[x];break}}
+  1203→    const risk=Math.abs(sl-mid);tp=voidTp&&Math.abs(voidTp-mid)/risk>=2.5?voidTp:mid-risk*2.5;
+  1204→  }
+  1205→  const risk=Math.abs(mid-sl);const rr=risk>0?Math.abs(tp-mid)/risk:0;
+  1206→  if(rr<2.5)return{dir:'NEUTRAL',conf:0};
+  1207→  
+  1208→  // Apply tick normalization
+  1209→  sl=normPrice(sl);tp=normPrice(tp);
+  1210→  
+  1211→  return{dir,conf:Math.round(conf),entry:mid,sl,tp,rr,confluence:cf};
+  1212→}
+  1213→
+  1214→/* ── CALC MICRO (P1-U: True Kelly, P1-V: Confidence-adjusted) ── */
+  1215→function calcMicro(pl){
+  1216→  if(!pl||pl.dir==='NEUTRAL')return null;
+  1217→  const maxR=cBal*(cRp/100);const rpu=Math.abs(pl.entry-pl.sl);if(!rpu)return null;
+  1218→  const qty=maxR/rpu;const not=qty*pl.entry;
+  1219→  
+  1220→  // True Kelly (P1-U)
+  1221→  let W=0.55; // default, will be overridden by paper stats
+  1222→  const R=pl.rr;
+  1223→  let kelly=W-(1-W)/R;
+  1224→  if(kelly<0)return null; // Kelly says don't trade
+  1225→  
+  1226→  // Confidence-adjusted (P1-V)
+  1227→  kelly=kelly*(pl.conf/100);
+  1228→  
+  1229→  // Hard risk cap (P1-W)
+  1230→  const riskPct=Math.min(kelly*100/2,cRp); // Half-Kelly, capped at base risk
+  1231→  const actualRisk=cBal*(riskPct/100);
+  1232→  const actualQty=actualRisk/rpu;
+  1233→  const actualNot=actualQty*pl.entry;
+  1234→  
+  1235→  let lev=actualNot/cBal;lev=Math.min(lev,cMl);lev=Math.max(lev,1);
+  1236→  const mar=actualNot/lev;
+  1237→  const fee=actualNot*(cFb/10000)*2;
+  1238→  const be=fee/actualQty;
+  1239→  
+  1240→  // Tier-based maintenance margin (P1-X)
+  1241→  let mmr=0.004;
+  1242→  if(actualNot>50000)mmr=0.005;
+  1243→  if(actualNot>250000)mmr=0.01;
+  1244→  if(actualNot>1000000)mmr=0.025;
+  1245→  
+  1246→  const liq=pl.dir==='LONG'?pl.entry*(1-1/lev+mmr):pl.entry*(1+1/lev-mmr);
+  1247→  
+  1248→  // Funding (P1-Y)
+  1249→  const fundCost=fundingRate!==0?Math.abs(fundingRate)*actualNot:0;
+  1250→  
+  1251→  const ordT=vVal>.7?'LIMIT ONLY':'MARKET';
+  1252→  return{riskPct:riskPct.toFixed(2),notional:actualNot,margin:mar,lev:lev.toFixed(1),be,liq,kelly:(kelly*100).toFixed(1),ordT,fundCost};
+  1253→}
+  1254→
+  1255→/* ── NARRATIVE (P2-W: Structured, P2-X: Regime, P2-Y: Evidence) ── */
+  1256→function genNarrative(pl){
+  1257→  if(!pl||pl.dir==='NEUTRAL'){
+  1258→    return '🟡 '+regime+' | Piyasa net yonlu sinyal uretmiyor. Bekleme modunda.';
+  1259→  }
+  1260→  const t=now();let parts=[],evidence=[];
+  1261→  for(let i=0;i<Math.min(sC,10);i++){const x=(sH-1-i+MS*2)%MS;if(t-sTm[x]>30000)break;
+  1262→    if(sTy[x].includes('WALL')){parts.push((sTy[x].includes('BID')?'Bid':'Ask')+' duvari @ '+sPr[x].toFixed(2));evidence.push('WALL')}
+  1263→    if(sTy[x].includes('CVD')){parts.push('CVD '+(sBi[x]==='bullish'?'pozitif':'negatif')+' uyumsuzluk');evidence.push('CVD')}
+  1264→    if(sTy[x].includes('SPOOF')){parts.push('Spoofing tespit edildi');evidence.push('SPOOF')}
+  1265→    if(sTy[x].includes('ABSORPTION')||sTy[x].includes('COMPRESSION')){parts.push('Emilim/sikisma bolgesi');evidence.push('ABSORB')}
+  1266→    if(sTy[x].includes('CASCADE')){parts.push('Cascade aktivitesi');evidence.push('CASCADE')}
+  1267→    if(sTy[x].includes('ICEBERG')){parts.push('Iceberg tespiti');evidence.push('ICEBERG')}
+  1268→  }
+  1269→  if(!parts.length)parts.push(Math.min(sC,30)+' sinyal konverjans');
+  1270→  
+  1271→  const regimeEmoji=regime==='TRENDING'?'🟢':regime==='CHOPPY'?'🟠':regime==='COILING'?'🔵':regime==='CHAOS'?'🔴':'⚪';
+  1272→  return regimeEmoji+' '+regime+' | Fiyat '+(pl.dir==='LONG'?'yukari':'asagi')+' yonlu baski: '+parts.join('; ')+'. RR: '+pl.rr.toFixed(1)+'. Confluence: '+pl.confluence+'/6';
+  1273→}
+  1274→
+  1275→/* ── POST STATE (P1-Z: Throttled, P2-AA: Diff-based) ─────── */
+  1276→let lastPostT=0;
+  1277→function postSt(){
+  1278→  const t=now();
+  1279→  if(t-lastPostT<200)return; // Throttle (P1-Z)
+  1280→  lastPostT=t;
+  1281→  
+  1282→  const pl=genPlan();const mi=calcMicro(pl);const nar=genNarrative(pl);
+  1283→  
+  1284→  // Signal decay by type (P1-16)
+  1285→  const sigs=[];
+  1286→  for(let i=0;i<Math.min(sC,30);i++){
+  1287→    const x=(sH-1-i+MS*2)%MS;
+  1288→    if(t-sTm[x]>120000)break;
+  1289→    const age=t-sTm[x];
+  1290→    const dr=decayRate(sTy[x]);
+  1291→    const decay=Math.exp(-dr*age);
+  1292→    sigs.push({t:sTy[x],b:sBi[x],c:Math.round(sDe[x]*decay),p:sPr[x],ts:sTm[x],d:sDs[x],cf:sCf[x],ver:sVer[x]});
+  1293→  }
+  1294→  
+  1295→  const flows=[];for(let i=0;i<Math.min(fC,30);i++){const x=(fH-1-i+MF*2)%MF;flows.unshift({p:fPr[x],s:fSt[x],d:fDe[x],b:fBu[x],sl:fSe[x]})}
+  1296→  const cvds=[];for(let i=0;i<Math.min(cC,60);i++){const x=(cH-1-i+MC*2)%MC;cvds.unshift(cV[x])}
+  1297→  
+  1298→  let ll=0,ls=0;for(let i=0;i<lC;i++){const x=(lH-1-i+MQ*2)%MQ;if(t-lT[x]>60000)break;if(lS[x]===1)ll++;else ls++}
+  1299→  
+  1300→  let bd=0,ad=0;const n10=Math.min(10,bN,aN);for(let i=0;i<n10;i++){bd+=bP[i]*bQ[i];ad+=aP[i]*aQ[i]}
+  1301→  const obi=n10>0?(bd-ad)/(bd+ad):0;
+  1302→  
+  1303→  let mp=0,wSum=0,qSum=0;const n5=Math.min(5,bN,aN);
+  1304→  for(let i=0;i<n5;i++){wSum+=bP[i]*bQ[i];qSum+=bQ[i];wSum+=aP[i]*aQ[i];qSum+=aQ[i]}
+  1305→  mp=qSum>0?wSum/qSum:mid;
+  1306→  const spBps=mid>0&&bN>0&&aN>0?(aP[0]-bP[0])/mid*1e4:0;
+  1307→  
+  1308→  postMessage({type:'st',mid,vpin:vVal,cvd,cvds,flows,sigs,plan:pl,micro:mi,narrative:nar,
+  1309→    planState,planId,planDir,planConf,planEntry,planSL,planTP,planRR,planConfluence,planTTL:planTTL>0?Math.round(planTTL/1000):0,
+  1310→    regime,regimeScore,obi,obi5,obi20,obiDiv,bookVelScore,
+  1311→    liqLong:ll,liqShort:ls,mp,spBps,absorption:absInfo?{...absInfo}:null,
+  1312→    tapeSpike,tradeRate1s,whaleT1,whaleT3,
+  1313→    bN,aN,bidP:Array.from(bP.subarray(0,bN)),bidQ:Array.from(bQ.subarray(0,bN)),
+  1314→    askP:Array.from(aP.subarray(0,aN)),askQ:Array.from(aQ.subarray(0,aN)),
+  1315→    wBC,wBP:Array.from(wBP.subarray(0,wBC)),wBX:Array.from(wBX.subarray(0,wBC)),wBE:Array.from(wBE.subarray(0,wBC)),
+  1316→    wAC,wAP:Array.from(wAP.subarray(0,wAC)),wAX:Array.from(wAX.subarray(0,wAC)),wAE:Array.from(wAE.subarray(0,wAC)),
+  1317→    liqPoolLong,liqPoolShort,
+  1318→    cascadeChainLen,cascadeChainDir
+  1319→  });
+  1320→  absInfo=null;
+  1321→}
+  1322→
+  1323→/* ── ON MESSAGE ──────────────────────────────────────────── */
+  1324→onmessage=function(e){
+  1325→  const m=e.data;
+  1326→  if(m.cmd==='book')procBook(m.bids,m.asks);
+  1327→  else if(m.cmd==='trade')procTrade(m.p,m.q,m.s,m.t);
+  1328→  else if(m.cmd==='liq')procLiq(m.s,m.p,m.q,m.t);
+  1329→  else if(m.cmd==='config'){
+  1330→    if(m.wallMult!=null)cWm=m.wallMult;if(m.minConf!=null)cMc=m.minConf;
+  1331→    if(m.flowTF!=null)cFt=m.flowTF;if(m.flowMode!=null)cFm=m.flowMode;
+  1332→    if(m.flowVol!=null)cFv=m.flowVol;if(m.balance!=null)cBal=m.balance;
+  1333→    if(m.risk!=null)cRp=m.risk;if(m.maxLev!=null)cMl=m.maxLev;
+  1334→    if(m.fee!=null)cFb=m.fee;if(m.spoofWin!=null)cSw=m.spoofWin;
+  1335→    if(m.iceMin!=null)cIb=m.iceMin;if(m.depthLevels!=null)cDL=m.depthLevels;
+  1336→    if(m.heatWin!=null)cHW=m.heatWin;if(m.planTTL!=null)cTTL=m.planTTL;
+  1337→    if(m.maxHold!=null)cHold=m.maxHold;
+  1338→    if(m.tickSize!=null)tickSize=m.tickSize;if(m.stepSize!=null)stepSize=m.stepSize;
+  1339→    if(m.minQty!=null)minQty=m.minQty;if(m.minNotional!=null)minNotional=m.minNotional;
+  1340→    if(m.fundingRate!=null)fundingRate=m.fundingRate;
+  1341→  }else if(m.cmd==='armPlan'){
+  1342→    if(planState==='CANDIDATE'){planState='ARMED';postSt()}
+  1343→  }else if(m.cmd==='cancelPlan'){
+  1344→    planState='NEUTRAL';planId='';planDir='';planConf=0;postSt();
+  1345→  }else if(m.cmd==='reset'){
+  1346→    cvd=0;cH=0;cC=0;tH=0;tC=0;fH=0;fC=0;sH=0;sC=0;lH=0;lC=0;
+  1347→    vSum=0;vCnt=0;vVal=0;vBB=0;vSB=0;vBN=0;vBucketSz=500000;
+  1348→    fbS=0;fbB=0;fbSe=0;fbA=0;fbL=0;wBC=0;wAC=0;compAct=false;ladC=0;mid=0;absInfo=null;
+  1349→    bookVelScore=0;tradeRate1s=0;tapeSpike=false;whaleT1=0;whaleT3=0;
+  1350→    cascadeChainLen=0;cascadeChainDir=0;
+  1351→    planState='NEUTRAL';planId='';planDir='';planConf=0;
+  1352→    obi5=0;obi10=0;obi20=0;obiDiv=false;
+  1353→    for(let i=0;i<ML;i++){iTr[i]=0;iDp[i]=0;iCt[i]=0;iState[i]=0;iT[i]=0;voidFillState[i]=0;voidFillT[i]=0}
+  1354→    for(let i=0;i<60;i++){volHist[i]=0;dirHist[i]=0}
+  1355→    volH=0;dirH=0;regime='DEAD';regimeScore=0;
+  1356→  }
+  1357→};
+  1358→"""
+  1359→
+  1360→print(f"PART 3 (Worker) oluşturuldu: {len(worker_code)} chars")
