@@ -1,0 +1,20 @@
+// ClaimMoney Engine - Public API
+export * from './types';
+export { MarketRuntime } from './market-runtime';
+export type { MarketState } from './market-runtime';
+export { FeatureFrameBuilder } from './feature-frame';
+export { JSONLReplay } from './jsonl-replay';
+export { validateOKXChecksum, parseOKXCandle, parseOKXTrade, buildOKXSubscribe, crc32c } from './okx-integration';
+export { WebSocketManager } from './websocket-manager';
+export { DetectorRegistry, createMeanReversionDetector, createMomentumDetector, createBreakoutDetector, createVolumeSpikeDetector } from './detector-registry';
+export { RegimeClassifier } from './regime-classifier';
+export { SignalPipeline } from './signal-pipeline';
+export { FeeAccounting } from './fee-accounting';
+export { RiskPlanner } from './risk-planner';
+export { PaperExecution } from './paper-execution';
+export { Calibrator } from './calibration';
+export { SessionManager } from './session-manager';
+export { WalkForwardAnalyzer } from './walk-forward';
+export { DataQualityGate } from './data-quality';
+export { generateId, formatNumber, formatPct, clamp, average, standardDeviation, ema, sma, rsi, atr, vwap, bollingerBands, macd, resetIdCounter } from './helpers';
+export { serializeSession, deserializeSession, roundtripSession } from './serialization';
